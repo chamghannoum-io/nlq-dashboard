@@ -6,7 +6,8 @@ const Sidebar = ({
   selectedHistoryId, 
   loadHistoryItem, 
   sidebarWidth,
-  onNewChat
+  onNewChat,
+  onCollapse
 }) => {
   return (
     <div 
@@ -21,13 +22,26 @@ const Sidebar = ({
           </h1>
           <p className="text-sm text-gray-500 mt-1">Chat History</p>
         </div>
-        <button
-          onClick={onNewChat}
-          className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
-          title="Start a new chat"
-        >
-          New Chat
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={onNewChat}
+            className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
+            title="Start a new chat"
+          >
+            New Chat
+          </button>
+          {onCollapse && (
+            <button
+              onClick={onCollapse}
+              className="p-2 text-gray-600 hover:bg-gray-100 rounded-md"
+              title="Hide sidebar"
+            >
+              <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="15 18 9 12 15 6"></polyline>
+              </svg>
+            </button>
+          )}
+        </div>
       </div>
       
       <div className="flex-1 overflow-y-auto p-2">
