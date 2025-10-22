@@ -12,7 +12,6 @@ export const apiService = {
     };
     
     console.log('Request body:', requestBody);
-    console.log('Webhook URL:', WEBHOOK_URL);
     
     const response = await fetch(WEBHOOK_URL, {
       method: 'POST',
@@ -22,52 +21,90 @@ export const apiService = {
       },
       body: JSON.stringify(requestBody)
     });
-
-    console.log('Response status:', response.status);
-    console.log('Response headers:', response.headers);
     
     if (!response.ok) {
       throw new Error(`HTTP error! status: ${response.status}`);
     }
     
     const data = await parseJsonSafe(response);
-    console.log('Response data:', data);
+    console.log('Initial webhook response:', JSON.stringify(data, null, 2));
     
-    // Handle both JSON and plain text responses
+    // Handle plain text response (first webhook)
     let chatData;
     if (data && data.__text) {
-      // Plain text response
       chatData = {
         question: question.trim(),
         answer: data.__text,
-        should_visualize: false
+        should_visualize: true,
+        isLoadingVisualization: true 
       };
+      
+      console.log('Plain text response received, will poll for visualization data...');
+      
+      // Start polling for complete data in the background
+      this.pollForVisualization(question, chatData);
     } else {
-      // JSON response
       chatData = Array.isArray(data) ? data[0] : data;
+      chatData.isLoadingVisualization = false;
     }
-    
-    console.log('Processed chat data:', chatData);
-    
-    // Debug visualization data
-    console.log('Visualization debug:', {
-      should_visualize: chatData.should_visualize,
-      embed_url: chatData.embed_url,
-      card_id: chatData.card_id,
-      card_name: chatData.card_name,
-      visualization_type: chatData.visualization_type
-    });
     
     return chatData;
   },
 
+  // Poll for visualization data
+  async pollForVisualization(question, initialChatData) {
+    const maxAttempts = 5;
+    const delays = [1500, 2000, 2500, 3000, 3500];
+    
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      try {
+        await new Promise(resolve => setTimeout(resolve, delays[attempt]));
+        
+        console.log(`Polling attempt ${attempt + 1}/${maxAttempts} for visualization...`);
+        const history = await this.loadHistory();
+        
+        const matches = history.filter(h => 
+          h.question && h.question.trim().toLowerCase() === question.trim().toLowerCase()
+        );
+        
+        if (matches.length > 0) {
+          const completeChat = matches[0];
+          
+          console.log('Found match in history:', JSON.stringify(completeChat, null, 2));
+          
+          // Check if it has visualization data
+          if (completeChat.embed_url || completeChat.should_visualize === false) {
+            console.log('Complete visualization data found, broadcasting update...');
+            
+            window.dispatchEvent(new CustomEvent('visualizationReady', {
+              detail: completeChat
+            }));
+            
+            return completeChat;
+          } else {
+            console.log('Match found but no visualization data yet');
+          }
+        } else {
+          console.log(`Attempt ${attempt + 1}: No matching entry found in history yet`);
+        }
+      } catch (error) {
+        console.warn(`Polling attempt ${attempt + 1} failed:`, error);
+      }
+    }
+    
+    console.log('Max polling attempts reached, visualization may not be available');
+    
+    window.dispatchEvent(new CustomEvent('visualizationTimeout', {
+      detail: { question }
+    }));
+  },
+
   // Load chat history
   async loadHistory() {
-    // Request more rows explicitly and disable caches
     const historyUrl = HISTORY_URL.includes('?')
-      ? `${HISTORY_URL}&limit=1000`
-      : `${HISTORY_URL}?limit=1000`;
-    console.log('Loading history from:', historyUrl);
+      ? `${HISTORY_URL}&limit=1000&_=${Date.now()}`
+      : `${HISTORY_URL}?limit=1000&_=${Date.now()}`;
+      
     const response = await fetch(historyUrl, {
       method: 'GET',
       mode: 'cors',
@@ -78,18 +115,13 @@ export const apiService = {
         'Cache-Control': 'no-store'
       }
     });
-    console.log('History response status:', response.status);
     
     if (!response.ok) {
       throw new Error(`HTTP error! status: ${response.status}`);
     }
     
     const data = await parseJsonSafe(response);
-    console.log('History data:', data);
-    
-    // Only process if we got valid JSON data (ignore plain text responses for history)
     const historyArray = !data || data.__text ? [] : (Array.isArray(data) ? data : [data]);
-    console.log('Processed history array:', historyArray);
     
     return historyArray.reverse();
   }

@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { apiService } from '../services/apiService.js';
 
-// Hook for managing chat state and API calls
 export const useChat = () => {
   const [sessionId, setSessionId] = useState(null);
   const [question, setQuestion] = useState('');
@@ -24,6 +23,47 @@ export const useChat = () => {
     loadHistory();
   }, []);
 
+  // Listen for visualization updates from apiService
+  useEffect(() => {
+    const handleVisualizationReady = (event) => {
+      const completeChat = event.detail;
+      
+      setCurrentChat(prev => {
+        if (prev && prev.question.trim().toLowerCase() === completeChat.question.trim().toLowerCase()) {
+          console.log('Updating current chat with visualization data from event');
+          return {
+            ...prev,
+            ...completeChat,
+            isLoadingVisualization: false
+          };
+        }
+        return prev;
+      });
+    };
+
+    const handleVisualizationTimeout = (event) => {
+      console.warn('Visualization loading timed out for:', event.detail.question);
+      setCurrentChat(prev => {
+        if (prev && prev.question.trim().toLowerCase() === event.detail.question.trim().toLowerCase()) {
+          return {
+            ...prev,
+            isLoadingVisualization: false,
+            should_visualize: false
+          };
+        }
+        return prev;
+      });
+    };
+
+    window.addEventListener('visualizationReady', handleVisualizationReady);
+    window.addEventListener('visualizationTimeout', handleVisualizationTimeout);
+
+    return () => {
+      window.removeEventListener('visualizationReady', handleVisualizationReady);
+      window.removeEventListener('visualizationTimeout', handleVisualizationTimeout);
+    };
+  }, []);
+
   const loadHistory = async () => {
     try {
       const historyData = await apiService.loadHistory();
@@ -43,18 +83,17 @@ export const useChat = () => {
 
     console.log('Sending message:', question.trim());
     
-    // Optimistic UI: show the user's question immediately
     const optimistic = {
       question: question.trim(),
       answer: 'Working on it…',
-      should_visualize: true
+      should_visualize: true,
+      isLoadingVisualization: true
     };
     setCurrentChat(optimistic);
     setLoading(true);
+    
     try {
-      const askedAtMs = Date.now();
       const askedQuestion = question.trim();
-      const askedQuestionLc = askedQuestion.toLowerCase();
       const chatData = await apiService.sendQuestion(askedQuestion, sessionId);
       
       if (!sessionId && chatData.session_id) {
@@ -66,45 +105,16 @@ export const useChat = () => {
       console.log('Set current chat:', chatData);
       setQuestion('');
       
-      // Always refresh history after sending (backend may enrich later)
+      // Refresh history
       await loadHistory();
       setSelectedHistoryId(null);
 
-      // If visualization details are not ready yet, poll history briefly to pick up embed_url
-      if (!chatData?.embed_url) {
-        try {
-          const maxAttempts = 5;
-          const delayMs = 1200;
-          for (let attempt = 0; attempt < maxAttempts; attempt++) {
-            const latest = await apiService.loadHistory();
-            // Prefer most recent entry for THIS question (avoid switching to older completed items)
-            const enriched = latest.find((h) => {
-              const q = (h.question || '').trim().toLowerCase();
-              const sameQuestion = q === askedQuestionLc;
-              const sameSession = (chatData.session_id && h.session_id === chatData.session_id) || !chatData.session_id || !h.session_id;
-              const tsOk = (() => {
-                const t = Date.parse(h.timestamp || '');
-                return Number.isFinite(t) ? (t >= askedAtMs - 5000) : true; // allow small skew
-              })();
-              return sameQuestion && sameSession && tsOk && !!h.embed_url;
-            });
-            if (enriched) {
-              setCurrentChat(enriched);
-              break;
-            }
-            await new Promise((r) => setTimeout(r, delayMs));
-          }
-        } catch (e) {
-          console.warn('Polling for visualization failed:', e);
-        }
-      }
+      
     } catch (error) {
       console.error('Failed to send message:', error);
       
-      // Check if it's a CORS error but workflow might have executed
       if (error.message.includes('Failed to fetch') || error.message.includes('CORS')) {
         console.log('CORS error detected, but workflow may have executed');
-        // Show a message indicating the request was sent
         const corsChat = {
           question: question.trim(),
           answer: "Your question has been sent! However, there's a CORS issue preventing the response from displaying. Please check your n8n workflow logs or try refreshing the page to see if the response appears.",
@@ -138,7 +148,6 @@ export const useChat = () => {
   };
 
   const startNewChat = () => {
-    // Reset state for a fresh conversation
     setQuestion('');
     setCurrentChat(null);
     setSelectedHistoryId(null);
