@@ -6,6 +6,9 @@ import ChatSection from './components/ChatSection.jsx';
 import VisualizationPanel from './components/VisualizationPanel.jsx';
 
 const App = () => {
+  // Sidebar open/close - declare first since useResizing needs it
+  const [isSidebarOpen, setIsSidebarOpen] = React.useState(true);
+
   const {
     // State
     question,
@@ -26,11 +29,8 @@ const App = () => {
   const {
     sidebarWidth,
     visualizationWidth,
-    startResizing
-  } = useResizing();
-
-  // Sidebar open/close
-  const [isSidebarOpen, setIsSidebarOpen] = React.useState(true);
+    startVisualizationResizing
+  } = useResizing(isSidebarOpen);
 
   return (
     <div className="flex h-screen bg-gray-50">
@@ -60,12 +60,6 @@ const App = () => {
         </div>
       )}
 
-      {/* Resizable divider for sidebar */}
-      <div
-        className="w-1 bg-gray-300 hover:bg-blue-400 cursor-col-resize flex-shrink-0 transition-colors"
-        onMouseDown={startResizing}
-      />
-
       {/* Main Content */}
       <div className="flex flex-1">
         {/* Chat Section */}
@@ -82,7 +76,7 @@ const App = () => {
         {/* Divider for visualization (still resizable if desired) */}
         <div
           className="w-1 bg-gray-200 hover:bg-blue-300 cursor-col-resize flex-shrink-0 transition-colors"
-          onMouseDown={startResizing}
+          onMouseDown={startVisualizationResizing}
         />
 
         {/* Visualization Section */}
