@@ -1,12 +1,9 @@
 import React from 'react';
 import { BarChart3 } from 'lucide-react';
 
-const VisualizationPanel = ({ currentChat, visualizationWidth }) => {
+const VisualizationPanel = ({ currentChat }) => {
   return (
-    <div 
-      className="bg-white flex flex-col"
-      style={{ width: `${visualizationWidth}%` }}
-    >
+    <div className="bg-white flex flex-col h-full">
       <div className="p-4 border-b border-gray-200">
         <h2 className="text-lg font-semibold text-gray-800">Visualization</h2>
         {currentChat && currentChat.card_name && (
@@ -22,7 +19,7 @@ const VisualizationPanel = ({ currentChat, visualizationWidth }) => {
             </div>
             <iframe
               src={currentChat.embed_url}
-              className="flex-1 border-0"
+              className="flex-1 border-0 w-full"
               title={`Metabase Visualization: ${currentChat.card_name || 'Chart'}`}
             />
           </div>

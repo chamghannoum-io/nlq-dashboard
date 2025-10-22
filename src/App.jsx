@@ -61,29 +61,32 @@ const App = () => {
       )}
 
       {/* Main Content */}
-      <div className="flex flex-1">
-        {/* Chat Section */}
-        <ChatSection 
-          currentChat={currentChat}
-          question={question}
-          setQuestion={setQuestion}
-          loading={loading}
-          sendMessage={sendMessage}
-          handleKeyPress={handleKeyPress}
-          messagesEndRef={messagesEndRef}
-        />
+      <div className="flex flex-1 min-w-0">
+        {/* Chat Section - takes remaining space */}
+        <div style={{ width: `${100 - visualizationWidth}%` }} className="flex flex-col min-w-0">
+          <ChatSection 
+            currentChat={currentChat}
+            question={question}
+            setQuestion={setQuestion}
+            loading={loading}
+            sendMessage={sendMessage}
+            handleKeyPress={handleKeyPress}
+            messagesEndRef={messagesEndRef}
+          />
+        </div>
 
-        {/* Divider for visualization (still resizable if desired) */}
+        {/* Divider for visualization */}
         <div
           className="w-1 bg-gray-200 hover:bg-blue-300 cursor-col-resize flex-shrink-0 transition-colors"
           onMouseDown={startVisualizationResizing}
         />
 
         {/* Visualization Section */}
-        <VisualizationPanel 
-          currentChat={currentChat}
-          visualizationWidth={visualizationWidth}
-        />
+        <div style={{ width: `${visualizationWidth}%` }} className="min-w-0">
+          <VisualizationPanel 
+            currentChat={currentChat}
+          />
+        </div>
       </div>
     </div>
   );
