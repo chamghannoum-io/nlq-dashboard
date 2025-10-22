@@ -4,7 +4,6 @@ const WEBHOOK_URL = '/webhook/user-question';
 const HISTORY_URL = '/webhook/chat-history';
 
 export const apiService = {
-  // Send a question to the webhook
   async sendQuestion(question, sessionId = null) {
     const requestBody = {
       question: question.trim(),
@@ -35,26 +34,23 @@ export const apiService = {
       chatData = {
         question: question.trim(),
         answer: data.__text,
-        should_visualize: true,
+        should_visualize: true, 
         isLoadingVisualization: true 
       };
       
       console.log('Plain text response received, will poll for visualization data...');
       
-      // Start polling for complete data in the background
       this.pollForVisualization(question, chatData);
     } else {
       chatData = Array.isArray(data) ? data[0] : data;
       chatData.isLoadingVisualization = false;
     }
-    
     return chatData;
   },
 
-  // Poll for visualization data
   async pollForVisualization(question, initialChatData) {
-    const maxAttempts = 5;
-    const delays = [1500, 2000, 2500, 3000, 3500];
+    const maxAttempts = 10;
+    const delays = [500, 500, 700, 700, 1000, 1000, 1500, 2000, 2500, 3000];
     
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       try {
@@ -63,8 +59,9 @@ export const apiService = {
         console.log(`Polling attempt ${attempt + 1}/${maxAttempts} for visualization...`);
         const history = await this.loadHistory();
         
+        const questionLower = question.trim().toLowerCase();
         const matches = history.filter(h => 
-          h.question && h.question.trim().toLowerCase() === question.trim().toLowerCase()
+          h.question && h.question.trim().toLowerCase() === questionLower
         );
         
         if (matches.length > 0) {
@@ -72,7 +69,6 @@ export const apiService = {
           
           console.log('Found match in history:', JSON.stringify(completeChat, null, 2));
           
-          // Check if it has visualization data
           if (completeChat.embed_url || completeChat.should_visualize === false) {
             console.log('Complete visualization data found, broadcasting update...');
             
@@ -99,7 +95,6 @@ export const apiService = {
     }));
   },
 
-  // Load chat history
   async loadHistory() {
     const historyUrl = HISTORY_URL.includes('?')
       ? `${HISTORY_URL}&limit=1000&_=${Date.now()}`
