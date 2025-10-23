@@ -1,7 +1,11 @@
 import React from 'react';
-import { BarChart3 } from 'lucide-react';
+import { BarChart3, Loader2 } from 'lucide-react';
 
 const VisualizationPanel = ({ currentChat }) => {
+  const isLoading = currentChat?.isLoadingVisualization === true;
+  const hasVisualization = currentChat?.embed_url && currentChat?.should_visualize !== false;
+  const shouldShowEmpty = !isLoading && !hasVisualization;
+
   return (
     <div className="bg-white flex flex-col h-full">
       <div className="p-4 border-b border-gray-200">
@@ -10,8 +14,21 @@ const VisualizationPanel = ({ currentChat }) => {
           <p className="text-sm text-gray-600 mt-1">{currentChat.card_name}</p>
         )}
       </div>
+      
       <div className="flex-1 overflow-hidden">
-        {currentChat && currentChat.embed_url && (currentChat.should_visualize !== false) ? (
+        {/* Loading State */}
+        {isLoading && (
+          <div className="h-full flex items-center justify-center">
+            <div className="text-center text-gray-400">
+              <Loader2 className="w-16 h-16 mx-auto mb-4 opacity-50 animate-spin" />
+              <p className="text-sm font-medium">Loading visualization...</p>
+              <p className="text-xs mt-2">This may take a few seconds</p>
+            </div>
+          </div>
+        )}
+
+        {/* Visualization Ready */}
+        {!isLoading && hasVisualization && (
           <div className="h-full flex flex-col">
             <div className="p-2 bg-gray-50 border-b text-xs text-gray-600">
               <span className="font-medium">Type:</span> {currentChat.visualization_type} | 
@@ -23,12 +40,15 @@ const VisualizationPanel = ({ currentChat }) => {
               title={`Metabase Visualization: ${currentChat.card_name || 'Chart'}`}
             />
           </div>
-        ) : (
+        )}
+
+        {/* Empty State */}
+        {shouldShowEmpty && (
           <div className="h-full flex items-center justify-center">
             <div className="text-center text-gray-400">
               <BarChart3 className="w-16 h-16 mx-auto mb-4 opacity-50" />
               <p className="text-sm">No visualization available</p>
-              {currentChat && !currentChat.should_visualize && (
+              {currentChat && currentChat.should_visualize === false && (
                 <p className="text-xs mt-2">This question doesn't require a chart</p>
               )}
             </div>
