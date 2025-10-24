@@ -6,25 +6,10 @@ import ChatSection from './components/ChatSection.jsx';
 import VisualizationPanel from './components/VisualizationPanel.jsx';
 
 const App = () => {
-  // Sidebar open/close - declare first since useResizing needs it
   const [isSidebarOpen, setIsSidebarOpen] = React.useState(true);
 
-  const {
-    // State
-    question,
-    setQuestion,
-    currentChat,
-    history,
-    loading,
-    selectedHistoryId,
-    messagesEndRef,
-    
-    // Actions
-    sendMessage,
-    loadHistoryItem,
-    handleKeyPress,
-    startNewChat
-  } = useChat();
+  // Only need history from useChat now
+  const { history } = useChat();
 
   const {
     sidebarWidth,
@@ -38,10 +23,8 @@ const App = () => {
       {isSidebarOpen && (
         <Sidebar 
           history={history}
-          selectedHistoryId={selectedHistoryId}
-          loadHistoryItem={loadHistoryItem}
           sidebarWidth={sidebarWidth}
-          onNewChat={startNewChat}
+          onNewChat={() => window.location.reload()}
           onCollapse={() => setIsSidebarOpen(false)}
         />
       )}
@@ -62,17 +45,9 @@ const App = () => {
 
       {/* Main Content */}
       <div className="flex flex-1 min-w-0">
-        {/* Chat Section - takes remaining space */}
+        {/* Chat Section - n8n widget handles everything */}
         <div style={{ width: `${100 - visualizationWidth}%` }} className="flex flex-col min-w-0">
-          <ChatSection 
-            currentChat={currentChat}
-            question={question}
-            setQuestion={setQuestion}
-            loading={loading}
-            sendMessage={sendMessage}
-            handleKeyPress={handleKeyPress}
-            messagesEndRef={messagesEndRef}
-          />
+          <ChatSection />
         </div>
 
         {/* Divider for visualization */}
@@ -83,9 +58,7 @@ const App = () => {
 
         {/* Visualization Section */}
         <div style={{ width: `${visualizationWidth}%` }} className="min-w-0">
-          <VisualizationPanel 
-            currentChat={currentChat}
-          />
+          <VisualizationPanel />
         </div>
       </div>
     </div>
