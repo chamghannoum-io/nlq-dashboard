@@ -7,10 +7,8 @@ import VisualizationPanel from './components/VisualizationPanel.jsx';
 
 const App = () => {
   const [isSidebarOpen, setIsSidebarOpen] = React.useState(true);
-  const [selectedHistoryId, setSelectedHistoryId] = React.useState(null);
-  const [currentChat, setCurrentChat] = React.useState(null);
+  const [selectedHistoryItem, setSelectedHistoryItem] = React.useState(null);
 
-  // Only need history from useChat now
   const { history } = useChat();
 
   const {
@@ -19,31 +17,35 @@ const App = () => {
     startVisualizationResizing
   } = useResizing(isSidebarOpen);
 
-  const loadHistoryItem = (item) => {
-    const itemId = item.session_id + item.timestamp;
-    setSelectedHistoryId(itemId);
-    setCurrentChat(item);
+  const handleHistoryClick = (item) => {
+    console.log('History item clicked:', item);
+    setSelectedHistoryItem(item);
+  };
+
+  const handleNewChat = () => {
+    setSelectedHistoryItem(null);
   };
 
   return (
-    <div className="flex h-screen bg-gray-50">
+    <div className="flex h-screen bg-gray-100 overflow-hidden">
       {/* Sidebar */}
       {isSidebarOpen && (
         <Sidebar 
           history={history}
-          selectedHistoryId={selectedHistoryId}
-          loadHistoryItem={loadHistoryItem}
+          selectedHistoryItem={selectedHistoryItem}
+          onHistoryClick={handleHistoryClick}
           sidebarWidth={sidebarWidth}
-          onNewChat={() => window.location.reload()}
+          onNewChat={handleNewChat}
           onCollapse={() => setIsSidebarOpen(false)}
         />
       )}
 
+      {/* Collapsed Sidebar Button */}
       {!isSidebarOpen && (
-        <div className="border-r bg-white flex items-center justify-center px-1">
+        <div className="border-r border-gray-200 bg-white flex items-center justify-center px-2 shadow-sm">
           <button
             onClick={() => setIsSidebarOpen(true)}
-            className="p-2 text-gray-600 hover:bg-gray-100 rounded-md"
+            className="p-2.5 text-gray-500 hover:bg-blue-50 hover:text-blue-600 rounded-lg transition-all duration-200"
             title="Show sidebar"
           >
             <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -53,22 +55,26 @@ const App = () => {
         </div>
       )}
 
-      {/* Main Content */}
-      <div className="flex flex-1 min-w-0">
-        {/* Chat Section - n8n widget handles everything */}
-        <div style={{ width: `${100 - visualizationWidth}%` }} className="flex flex-col min-w-0">
-          <ChatSection />
+      {/* Main Content Area */}
+      <div className="flex flex-1 min-w-0 overflow-hidden">
+        {/* Chat Section */}
+        <div style={{ width: `${100 - visualizationWidth}%` }} className="flex flex-col min-w-0 bg-white border-r border-gray-200">
+          <ChatSection selectedHistoryItem={selectedHistoryItem} />
         </div>
 
-        {/* Divider for visualization */}
+        {/* Resize Divider */}
         <div
-          className="w-1 bg-gray-200 hover:bg-blue-300 cursor-col-resize flex-shrink-0 transition-colors"
+          className="w-1 bg-gradient-to-b from-gray-300 to-gray-200 hover:from-blue-400 hover:to-blue-300 cursor-col-resize flex-shrink-0 transition-all duration-200 group relative"
           onMouseDown={startVisualizationResizing}
-        />
+        >
+          <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+            <div className="w-1 h-20 bg-blue-500 rounded-full"></div>
+          </div>
+        </div>
 
         {/* Visualization Section */}
-        <div style={{ width: `${visualizationWidth}%` }} className="min-w-0">
-          <VisualizationPanel currentChat={currentChat} />
+        <div style={{ width: `${visualizationWidth}%` }} className="min-w-0 bg-white">
+          <VisualizationPanel selectedItem={selectedHistoryItem} />
         </div>
       </div>
     </div>
