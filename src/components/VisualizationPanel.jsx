@@ -1,11 +1,21 @@
 import { useEffect, useState } from 'react';
 import { BarChart3 } from 'lucide-react';
 
-export default function VisualizationPanel({ selectedItem }) {
+export default function VisualizationPanel({ selectedItem, chatKey }) {
   const [embedUrl, setEmbedUrl] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [cardTitle, setCardTitle] = useState('');
   const [cardInfo, setCardInfo] = useState(null);
+
+  // When chatKey changes (new chat started), clear visualization
+  useEffect(() => {
+    if (!selectedItem) {
+      setEmbedUrl(null);
+      setCardTitle('');
+      setCardInfo(null);
+      setIsLoading(false);
+    }
+  }, [chatKey, selectedItem]);
 
   // When a history item is selected, show its visualization immediately
   useEffect(() => {
@@ -30,7 +40,69 @@ export default function VisualizationPanel({ selectedItem }) {
     }
   }, [selectedItem]);
 
-  // Don't poll for new visualizations - only show when explicitly selected from history
+  // Poll for new visualizations when no history item is selected (live chat mode)
+  useEffect(() => {
+    if (selectedItem) return; // Don't poll when viewing history
+
+    let intervalId;
+    let lastProcessedTimestamp = null;
+    let startTimestamp = Date.now();
+
+    const pollForVisualization = async () => {
+      try {
+        const response = await fetch('/webhook/chat-history?limit=10&_=' + Date.now());
+        if (!response.ok) {
+          throw new Error('Failed to fetch chat history');
+        }
+        
+        const data = await response.json();
+        
+        if (data && Array.isArray(data) && data.length > 0) {
+          // Find items from the current session (created after this chat started)
+          const currentSessionItems = data.filter(item => {
+            const itemTime = new Date(item.timestamp).getTime();
+            return itemTime >= startTimestamp;
+          });
+
+          if (currentSessionItems.length > 0) {
+            const latest = currentSessionItems[0];
+            
+            // Only process if this is a new item
+            if (latest.timestamp === lastProcessedTimestamp) {
+              return;
+            }
+            lastProcessedTimestamp = latest.timestamp;
+            
+            // Check if there's an embed_url
+            if (latest.embed_url) {
+              setEmbedUrl(latest.embed_url);
+              setCardTitle(latest.card_name || latest.question || 'Visualization');
+              setCardInfo({
+                type: latest.visualization_type,
+                id: latest.card_id
+              });
+              setIsLoading(false);
+            } else if (latest.question && latest.answer && !latest.embed_url) {
+              // Question was asked and answered, but visualization is still generating
+              setIsLoading(true);
+              setCardTitle(latest.question);
+              setEmbedUrl(null);
+              setCardInfo(null);
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Error polling for visualization:', error);
+        setIsLoading(false);
+      }
+    };
+
+    // Poll every 2 seconds
+    intervalId = setInterval(pollForVisualization, 2000);
+    pollForVisualization(); // Initial poll
+
+    return () => clearInterval(intervalId);
+  }, [selectedItem, chatKey]);
 
   return (
     <div className="h-full flex flex-col bg-white">
@@ -91,12 +163,12 @@ export default function VisualizationPanel({ selectedItem }) {
               <p className="text-gray-600 font-medium mb-2">
                 {selectedItem 
                   ? 'No visualization available' 
-                  : 'No visualization yet'}
+                  : 'Waiting for visualization'}
               </p>
               <p className="text-sm text-gray-400">
                 {selectedItem 
                   ? 'This conversation doesn\'t have a visualization' 
-                  : 'Select a conversation from history to view charts'}
+                  : 'Visualizations will appear here when available'}
               </p>
             </div>
           </div>

@@ -8,6 +8,7 @@ import VisualizationPanel from './components/VisualizationPanel.jsx';
 const App = () => {
   const [isSidebarOpen, setIsSidebarOpen] = React.useState(true);
   const [selectedHistoryItem, setSelectedHistoryItem] = React.useState(null);
+  const [chatKey, setChatKey] = React.useState(Date.now());
 
   const { history } = useChat();
 
@@ -24,6 +25,8 @@ const App = () => {
 
   const handleNewChat = () => {
     setSelectedHistoryItem(null);
+    // Force a new chat by updating the key, which will remount the chat component
+    setChatKey(Date.now());
   };
 
   return (
@@ -59,7 +62,7 @@ const App = () => {
       <div className="flex flex-1 min-w-0 overflow-hidden">
         {/* Chat Section */}
         <div style={{ width: `${100 - visualizationWidth}%` }} className="flex flex-col min-w-0 bg-white border-r border-gray-200">
-          <ChatSection selectedHistoryItem={selectedHistoryItem} />
+          <ChatSection key={chatKey} selectedHistoryItem={selectedHistoryItem} onClearHistory={handleNewChat} />
         </div>
 
         {/* Resize Divider */}
@@ -74,7 +77,7 @@ const App = () => {
 
         {/* Visualization Section */}
         <div style={{ width: `${visualizationWidth}%` }} className="min-w-0 bg-white">
-          <VisualizationPanel selectedItem={selectedHistoryItem} />
+          <VisualizationPanel selectedItem={selectedHistoryItem} chatKey={chatKey} />
         </div>
       </div>
     </div>

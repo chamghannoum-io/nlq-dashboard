@@ -4,7 +4,7 @@ import '@n8n/chat/style.css';
 import ChatDisplay from './ChatDisplay';
 import { ArrowLeft } from 'lucide-react';
 
-export default function ChatSection({ selectedHistoryItem }) {
+export default function ChatSection({ selectedHistoryItem, onClearHistory }) {
   const [showHistory, setShowHistory] = useState(false);
 
   useEffect(() => {
@@ -14,11 +14,14 @@ export default function ChatSection({ selectedHistoryItem }) {
         container.innerHTML = '';
       }
 
+      // Generate a unique session ID for each new chat
+      const sessionId = `n8n_session_${Date.now()}`;
+
       createChat({
         webhookUrl: '/webhook/6a2a75cc-9487-4650-8174-31e80a40158b/chat',
         target: '#n8n-chat-container',
         mode: 'fullscreen',
-        chatSessionKey: 'n8n_session_id',
+        chatSessionKey: sessionId,
         
         initialMessages: [
           'Hello! Ask me anything about your healthcare data.'
@@ -32,6 +35,13 @@ export default function ChatSection({ selectedHistoryItem }) {
     }
   }, [selectedHistoryItem]);
 
+  const handleBackToLiveChat = () => {
+    setShowHistory(false);
+    if (onClearHistory) {
+      onClearHistory();
+    }
+  };
+
   return (
     <div className="h-full flex flex-col bg-white">
       {/* Header */}
@@ -40,10 +50,7 @@ export default function ChatSection({ selectedHistoryItem }) {
           <h2 className="text-xl font-bold text-gray-900">Chat</h2>
           {showHistory && (
             <button
-              onClick={() => {
-                setShowHistory(false);
-                window.location.reload();
-              }}
+              onClick={handleBackToLiveChat}
               className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 active:bg-blue-800 transition-all duration-200 shadow-sm hover:shadow-md"
             >
               <ArrowLeft className="w-4 h-4" />
