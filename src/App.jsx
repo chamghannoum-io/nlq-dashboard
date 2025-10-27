@@ -7,6 +7,8 @@ import VisualizationPanel from './components/VisualizationPanel.jsx';
 
 const App = () => {
   const [isSidebarOpen, setIsSidebarOpen] = React.useState(true);
+  const [selectedHistoryId, setSelectedHistoryId] = React.useState(null);
+  const [currentChat, setCurrentChat] = React.useState(null);
 
   // Only need history from useChat now
   const { history } = useChat();
@@ -17,12 +19,20 @@ const App = () => {
     startVisualizationResizing
   } = useResizing(isSidebarOpen);
 
+  const loadHistoryItem = (item) => {
+    const itemId = item.session_id + item.timestamp;
+    setSelectedHistoryId(itemId);
+    setCurrentChat(item);
+  };
+
   return (
     <div className="flex h-screen bg-gray-50">
       {/* Sidebar */}
       {isSidebarOpen && (
         <Sidebar 
           history={history}
+          selectedHistoryId={selectedHistoryId}
+          loadHistoryItem={loadHistoryItem}
           sidebarWidth={sidebarWidth}
           onNewChat={() => window.location.reload()}
           onCollapse={() => setIsSidebarOpen(false)}
@@ -58,7 +68,7 @@ const App = () => {
 
         {/* Visualization Section */}
         <div style={{ width: `${visualizationWidth}%` }} className="min-w-0">
-          <VisualizationPanel />
+          <VisualizationPanel currentChat={currentChat} />
         </div>
       </div>
     </div>
