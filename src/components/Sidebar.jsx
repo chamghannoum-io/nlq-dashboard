@@ -66,37 +66,19 @@ const Sidebar = ({
                 <div
                   key={idx}
                   onClick={() => onHistoryClick(item)}
-                  className={`p-3 rounded-xl cursor-pointer transition-all duration-200 ${
+                  className={`p-3 rounded-lg cursor-pointer transition-all duration-200 ${
                     isSelected
-                      ? 'bg-blue-50 border-2 border-blue-500 shadow-md transform scale-[1.02]'
+                      ? 'bg-blue-50 border-2 border-blue-500 shadow-sm'
                       : 'bg-gray-50 hover:bg-gray-100 border-2 border-transparent hover:border-gray-200'
                   }`}
                 >
-                  {item.visualization_type && (
-                    <div className="mb-2">
-                      <span className="inline-flex items-center px-2 py-0.5 bg-blue-100 text-blue-700 text-xs font-medium rounded-full">
-                        {item.visualization_type}
-                      </span>
-                    </div>
-                  )}
-                  
-                  <p className="font-semibold text-gray-900 text-sm mb-2 line-clamp-2 leading-relaxed">
+                  <p className="font-semibold text-gray-900 text-sm mb-2 leading-relaxed line-clamp-2">
                     {item.card_name || item.question}
-                  </p>
-                  
-                  {item.card_name && item.card_name !== item.question && (
-                    <p className="text-xs text-gray-500 mb-2 line-clamp-1 italic font-light">
-                      Q: {item.question}
-                    </p>
-                  )}
-                  
-                  <p className="text-xs text-gray-600 mb-3 line-clamp-2 leading-relaxed">
-                    {item.answer}
                   </p>
                   
                   <div className="flex items-center gap-1.5 text-xs text-gray-500">
                     <Clock className="w-3.5 h-3.5" />
-                    <span className="font-medium">{new Date(item.timestamp).toLocaleString('en-US', { 
+                    <span>{new Date(item.timestamp).toLocaleString('en-US', { 
                       month: 'short', 
                       day: 'numeric', 
                       hour: 'numeric', 

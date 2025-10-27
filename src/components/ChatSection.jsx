@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { createChat } from '@n8n/chat';
 import '@n8n/chat/style.css';
 import ChatDisplay from './ChatDisplay';
-import { MessageCircle, ArrowLeft } from 'lucide-react';
+import { ArrowLeft } from 'lucide-react';
 
 export default function ChatSection({ selectedHistoryItem }) {
   const [showHistory, setShowHistory] = useState(false);
@@ -37,12 +37,7 @@ export default function ChatSection({ selectedHistoryItem }) {
       {/* Header */}
       <div className="px-6 py-4 border-b border-gray-200 bg-gradient-to-r from-gray-50 to-white">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
-              <MessageCircle className="w-5 h-5 text-white" />
-            </div>
-            <h2 className="text-xl font-bold text-gray-900">Chat</h2>
-          </div>
+          <h2 className="text-xl font-bold text-gray-900">Chat</h2>
           {showHistory && (
             <button
               onClick={() => {

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { BarChart3, Loader2 } from 'lucide-react';
+import { BarChart3 } from 'lucide-react';
 
 export default function VisualizationPanel({ selectedItem }) {
   const [embedUrl, setEmbedUrl] = useState(null);
@@ -30,57 +30,18 @@ export default function VisualizationPanel({ selectedItem }) {
     }
   }, [selectedItem]);
 
-  // Continue polling for NEW visualizations (only when no item is selected)
-  useEffect(() => {
-    if (selectedItem) return; // Don't poll when viewing history
-
-    const pollForVisualization = async () => {
-      try {
-        const response = await fetch('/webhook/chat-history?limit=1&_=' + Date.now());
-        const data = await response.json();
-        
-        if (data && data[0]) {
-          const latest = data[0];
-          
-          if (latest.embed_url) {
-            setEmbedUrl(latest.embed_url);
-            setCardTitle(latest.card_name || latest.question || 'Visualization');
-            setCardInfo({
-              type: latest.visualization_type,
-              id: latest.card_id
-            });
-            setIsLoading(false);
-          } else if (latest.should_visualize) {
-            setIsLoading(true);
-            setCardTitle(latest.question || 'Generating...');
-          }
-        }
-      } catch (error) {
-        console.error('Error polling for visualization:', error);
-      }
-    };
-
-    const interval = setInterval(pollForVisualization, 2000);
-    pollForVisualization();
-
-    return () => clearInterval(interval);
-  }, [selectedItem]);
+  // Don't poll for new visualizations - only show when explicitly selected from history
 
   return (
     <div className="h-full flex flex-col bg-white">
       {/* Header */}
       <div className="px-6 py-4 border-b border-gray-200 bg-gradient-to-r from-blue-50 to-white">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
-              <BarChart3 className="w-5 h-5 text-white" />
-            </div>
-            <div>
-              <h2 className="text-xl font-bold text-gray-900">Visualization</h2>
-              {cardTitle && (
-                <p className="text-sm text-gray-600 mt-0.5">{cardTitle}</p>
-              )}
-            </div>
+          <div>
+            <h2 className="text-xl font-bold text-gray-900">Visualization</h2>
+            {cardTitle && (
+              <p className="text-sm text-gray-600 mt-0.5">{cardTitle}</p>
+            )}
           </div>
           {cardInfo && (
             <div className="flex items-center gap-3 text-xs text-gray-600 bg-gray-50 px-3 py-1.5 rounded-lg">
@@ -130,12 +91,12 @@ export default function VisualizationPanel({ selectedItem }) {
               <p className="text-gray-600 font-medium mb-2">
                 {selectedItem 
                   ? 'No visualization available' 
-                  : 'Waiting for visualization'}
+                  : 'No visualization yet'}
               </p>
               <p className="text-sm text-gray-400">
                 {selectedItem 
                   ? 'This conversation doesn\'t have a visualization' 
-                  : 'Ask a question to see charts and insights'}
+                  : 'Select a conversation from history to view charts'}
               </p>
             </div>
           </div>
