@@ -1,7 +1,41 @@
-import React from 'react';
-import { User, Bot, Clock, History } from 'lucide-react';
+import React, { useState } from 'react';
+import { User, Bot, Clock, History, Volume2, VolumeX } from 'lucide-react';
 
 export default function ChatDisplay({ messages, isHistorical }) {
+  const [speaking, setSpeaking] = useState(null);
+
+  const speakText = (text, messageIndex) => {
+    // Stop any current speech
+    window.speechSynthesis.cancel();
+
+    if (speaking === messageIndex) {
+      // If clicking the same message, stop
+      setSpeaking(null);
+      return;
+    }
+
+    // Create speech synthesis
+    const utterance = new SpeechSynthesisUtterance(text);
+    
+    // Configure voice
+    utterance.rate = 1.0; // Speed (0.1 to 10)
+    utterance.pitch = 1.0; // Pitch (0 to 2)
+    utterance.volume = 1.0; // Volume (0 to 1)
+    
+    // Optional: Select a specific voice
+    const voices = window.speechSynthesis.getVoices();
+    const englishVoice = voices.find(voice => voice.lang.startsWith('en-'));
+    if (englishVoice) {
+      utterance.voice = englishVoice;
+    }
+
+    utterance.onstart = () => setSpeaking(messageIndex);
+    utterance.onend = () => setSpeaking(null);
+    utterance.onerror = () => setSpeaking(null);
+
+    window.speechSynthesis.speak(utterance);
+  };
+
   if (!messages || messages.length === 0) {
     return (
       <div className="flex items-center justify-center h-full bg-gray-50">
@@ -43,7 +77,7 @@ export default function ChatDisplay({ messages, isHistorical }) {
               </div>
             )}
 
-            {/* Bot Message */}
+            {/* Bot Message with TTS */}
             {msg.answer && (
               <div className="flex justify-start">
                 <div className="flex items-end gap-3 max-w-[75%]">
@@ -52,14 +86,27 @@ export default function ChatDisplay({ messages, isHistorical }) {
                   </div>
                   <div className="bg-white rounded-2xl rounded-bl-sm px-5 py-3 shadow-md border border-gray-200">
                     <p className="text-sm text-gray-800 leading-relaxed">{msg.answer}</p>
-                    {msg.timestamp && (
-                      <div className="flex items-center gap-1 mt-3 pt-2 border-t border-gray-100">
-                        <Clock className="w-3 h-3 text-gray-400" />
-                        <p className="text-xs text-gray-500">
-                          {new Date(msg.timestamp).toLocaleString()}
-                        </p>
-                      </div>
-                    )}
+                    <div className="flex items-center justify-between mt-3 pt-2 border-t border-gray-100">
+                      {msg.timestamp && (
+                        <div className="flex items-center gap-1">
+                          <Clock className="w-3 h-3 text-gray-400" />
+                          <p className="text-xs text-gray-500">
+                            {new Date(msg.timestamp).toLocaleString()}
+                          </p>
+                        </div>
+                      )}
+                      <button
+                        onClick={() => speakText(msg.answer, idx)}
+                        className="p-1.5 hover:bg-gray-100 rounded-full transition-colors"
+                        title={speaking === idx ? "Stop speaking" : "Read aloud"}
+                      >
+                        {speaking === idx ? (
+                          <VolumeX className="w-4 h-4 text-blue-600" />
+                        ) : (
+                          <Volume2 className="w-4 h-4 text-gray-500 hover:text-blue-600 transition-colors" />
+                        )}
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
