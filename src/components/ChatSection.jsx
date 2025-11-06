@@ -1,45 +1,30 @@
 import { useEffect, useState } from 'react';
-import { createChat } from '@n8n/chat';
-import '@n8n/chat/style.css';
 import ChatDisplay from './ChatDisplay';
+import CustomChatInterface from './CustomChatInterface';
 import { ArrowLeft } from 'lucide-react';
 
-export default function ChatSection({ selectedHistoryItem, onClearHistory }) {
+export default function ChatSection({ selectedHistoryItem, onClearHistory, chatKey, onVisualizationData }) {
   const [showHistory, setShowHistory] = useState(false);
+  const [sessionId, setSessionId] = useState(() => `n8n_session_${Date.now()}`);
 
   useEffect(() => {
     if (!selectedHistoryItem) {
-      const container = document.getElementById('n8n-chat-container');
-      if (container) {
-        container.innerHTML = '';
-      }
-
-      // Generate a unique session ID for each new chat
-      const sessionId = `n8n_session_${Date.now()}`;
-
-      createChat({
-        webhookUrl: '/webhook/6a2a75cc-9487-4650-8174-31e80a40158b/chat',
-        target: '#n8n-chat-container',
-        mode: 'fullscreen',
-        chatSessionKey: sessionId,
-        
-        initialMessages: [
-          'Hello! Ask me anything about your healthcare data.'
-        ],
-        inputPlaceholder: 'Type your question...',
-      });
-
+      setSessionId(`n8n_session_${Date.now()}`);
       setShowHistory(false);
     } else {
       setShowHistory(true);
     }
-  }, [selectedHistoryItem]);
+  }, [selectedHistoryItem, chatKey]);
 
   const handleBackToLiveChat = () => {
     setShowHistory(false);
     if (onClearHistory) {
       onClearHistory();
     }
+  };
+
+  const handleMessageSent = (message) => {
+    console.log('Message sent:', message);
   };
 
   return (
@@ -68,7 +53,11 @@ export default function ChatSection({ selectedHistoryItem, onClearHistory }) {
             isHistorical={true}
           />
         ) : (
-          <div id="n8n-chat-container" className="h-full" />
+          <CustomChatInterface 
+            sessionId={sessionId}
+            onMessageSent={handleMessageSent}
+            onVisualizationData={onVisualizationData}
+          />
         )}
       </div>
     </div>

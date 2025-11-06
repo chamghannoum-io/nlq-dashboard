@@ -1,4 +1,5 @@
 const HISTORY_URL = '/webhook/chat-history';
+const CHAT_WEBHOOK_URL = '/webhook/nlq-chat';
 
 export const apiService = {
   async loadHistory() {
@@ -20,5 +21,26 @@ export const apiService = {
     const historyArray = Array.isArray(data) ? data : [data];
     
     return historyArray.reverse();
+  },
+
+  async sendMessage(message, sessionId, signal) {
+    const response = await fetch(CHAT_WEBHOOK_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      },
+      body: JSON.stringify({
+        message: message,
+        sessionId: sessionId
+      }),
+      signal: signal
+    });
+    
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    
+    return response;
   }
 };

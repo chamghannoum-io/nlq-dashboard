@@ -5,7 +5,6 @@ export default function ChatDisplay({ messages, isHistorical }) {
   const [speaking, setSpeaking] = useState(null);
 
   const speakText = (text, messageIndex) => {
-    // Stop any current speech
     window.speechSynthesis.cancel();
 
     if (speaking === messageIndex) {
@@ -18,9 +17,9 @@ export default function ChatDisplay({ messages, isHistorical }) {
     const utterance = new SpeechSynthesisUtterance(text);
     
     // Configure voice
-    utterance.rate = 1.0; // Speed (0.1 to 10)
-    utterance.pitch = 1.0; // Pitch (0 to 2)
-    utterance.volume = 1.0; // Volume (0 to 1)
+    utterance.rate = 1.0; 
+    utterance.pitch = 1.0; 
+    utterance.volume = 1.0; 
     
     // Optional: Select a specific voice
     const voices = window.speechSynthesis.getVoices();

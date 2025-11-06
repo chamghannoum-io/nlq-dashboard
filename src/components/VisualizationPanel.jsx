@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { BarChart3 } from 'lucide-react';
 
-export default function VisualizationPanel({ selectedItem, chatKey }) {
+export default function VisualizationPanel({ selectedItem, chatKey, visualizationData }) {
   const [embedUrl, setEmbedUrl] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [cardTitle, setCardTitle] = useState('');
@@ -40,69 +40,27 @@ export default function VisualizationPanel({ selectedItem, chatKey }) {
     }
   }, [selectedItem]);
 
-  // Poll for new visualizations when no history item is selected (live chat mode)
+  // Handle visualization data from webhook payload (live chat mode)
   useEffect(() => {
-    if (selectedItem) return; // Don't poll when viewing history
-
-    let intervalId;
-    let lastProcessedTimestamp = null;
-    let startTimestamp = Date.now();
-
-    const pollForVisualization = async () => {
-      try {
-        const response = await fetch('/webhook/chat-history?limit=10&_=' + Date.now());
-        if (!response.ok) {
-          throw new Error('Failed to fetch chat history');
-        }
-        
-        const data = await response.json();
-        
-        if (data && Array.isArray(data) && data.length > 0) {
-          // Find items from the current session (created after this chat started)
-          const currentSessionItems = data.filter(item => {
-            const itemTime = new Date(item.timestamp).getTime();
-            return itemTime >= startTimestamp;
-          });
-
-          if (currentSessionItems.length > 0) {
-            const latest = currentSessionItems[0];
-            
-            // Only process if this is a new item
-            if (latest.timestamp === lastProcessedTimestamp) {
-              return;
-            }
-            lastProcessedTimestamp = latest.timestamp;
-            
-            // Check if there's an embed_url
-            if (latest.embed_url) {
-              setEmbedUrl(latest.embed_url);
-              setCardTitle(latest.card_name || latest.question || 'Visualization');
-              setCardInfo({
-                type: latest.visualization_type,
-                id: latest.card_id
-              });
-              setIsLoading(false);
-            } else if (latest.question && latest.answer && !latest.embed_url) {
-              // Question was asked and answered, but visualization is still generating
-              setIsLoading(true);
-              setCardTitle(latest.question);
-              setEmbedUrl(null);
-              setCardInfo(null);
-            }
-          }
-        }
-      } catch (error) {
-        console.error('Error polling for visualization:', error);
-        setIsLoading(false);
-      }
-    };
-
-    // Poll every 2 seconds
-    intervalId = setInterval(pollForVisualization, 2000);
-    pollForVisualization(); // Initial poll
-
-    return () => clearInterval(intervalId);
-  }, [selectedItem, chatKey]);
+    if (selectedItem) return; // Don't process when viewing history
+    
+    if (visualizationData && visualizationData.embedUrl) {
+      console.log('Received visualization data:', visualizationData);
+      setEmbedUrl(visualizationData.embedUrl);
+      setCardTitle(visualizationData.cardName || 'Visualization');
+      setCardInfo({
+        type: visualizationData.visualization_type,
+        id: visualizationData.cardId
+      });
+      setIsLoading(false);
+    } else if (visualizationData === null) {
+      // Clear visualization when data is explicitly cleared
+      setEmbedUrl(null);
+      setCardTitle('');
+      setCardInfo(null);
+      setIsLoading(false);
+    }
+  }, [visualizationData, selectedItem]);
 
   return (
     <div className="h-full flex flex-col bg-white">
@@ -131,13 +89,16 @@ export default function VisualizationPanel({ selectedItem, chatKey }) {
       {/* Content */}
       <div className="flex-1 overflow-hidden p-6">
         {isLoading && (
-          <div className="flex flex-col items-center justify-center h-full">
+          <div className="flex flex-col items-center justify-center h-full bg-gray-50">
             <div className="relative">
-              <div className="animate-spin rounded-full h-16 w-16 border-4 border-blue-200"></div>
-              <div className="animate-spin rounded-full h-16 w-16 border-4 border-blue-600 border-t-transparent absolute top-0 left-0"></div>
+              <div className="animate-spin rounded-full h-20 w-20 border-4 border-blue-200"></div>
+              <div className="animate-spin rounded-full h-20 w-20 border-4 border-blue-600 border-t-transparent absolute top-0 left-0"></div>
             </div>
-            <p className="mt-6 text-gray-600 font-medium">Generating visualization...</p>
-            <p className="text-sm text-gray-400 mt-2">This may take a few seconds</p>
+            <p className="mt-6 text-gray-700 font-semibold text-lg">Generating visualization...</p>
+            {cardTitle && (
+              <p className="text-sm text-gray-600 mt-2 text-center px-6">{cardTitle}</p>
+            )}
+            <p className="text-xs text-gray-400 mt-3">This may take a few seconds</p>
           </div>
         )}
         
