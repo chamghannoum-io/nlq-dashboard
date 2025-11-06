@@ -99,15 +99,32 @@ export default function CustomChatInterface({ sessionId, onMessageSent, onVisual
     }
   };
 
-  // Continue workflow by calling resume URL
-  const continueWorkflow = async (resumeUrl, actionPayload = null) => {
+  // Helper function to check if response is a placeholder
+  const isPlaceholderResponse = (data) => {
+    if (!data || typeof data !== 'object') return false;
+
+    // Check for common n8n placeholder messages
+    const placeholderMessages = [
+      'Workflow was started',
+      'Workflow is executing',
+      'Please wait'
+    ];
+
+    const message = data.message || '';
+    return placeholderMessages.some(placeholder =>
+      message.toLowerCase().includes(placeholder.toLowerCase())
+    ) && !data.type && !data.actions && !data.embedUrl && !data.embed_url;
+  };
+
+  // Continue workflow by calling resume URL with retry logic
+  const continueWorkflow = async (resumeUrl, actionPayload = null, retryCount = 0, maxRetries = 5) => {
     if (!resumeUrl || isProcessingWorkflowRef.current) {
       console.log('Skipping continueWorkflow:', { resumeUrl, isProcessing: isProcessingWorkflowRef.current });
       return;
     }
 
     isProcessingWorkflowRef.current = true;
-    console.log('Calling continueWorkflow with resumeUrl:', resumeUrl);
+    console.log(`Calling continueWorkflow with resumeUrl (attempt ${retryCount + 1}/${maxRetries + 1}):`, resumeUrl);
 
     try {
       const requestBody = actionPayload
@@ -125,6 +142,13 @@ export default function CustomChatInterface({ sessionId, onMessageSent, onVisual
       });
 
       console.log('Resume URL response status:', response.status);
+
+      // Handle 409 Conflict - resume URL already consumed
+      if (response.status === 409) {
+        console.log('Resume URL already consumed (409), ending workflow');
+        isProcessingWorkflowRef.current = false;
+        return;
+      }
 
       if (!response.ok) {
         console.warn('Resume URL response not OK:', response.status);
@@ -157,6 +181,23 @@ export default function CustomChatInterface({ sessionId, onMessageSent, onVisual
                 const data = JSON.parse(line);
                 console.log('Resume URL response data:', data);
 
+                // Check if this is a placeholder response that needs retry
+                if (isPlaceholderResponse(data)) {
+                  if (retryCount < maxRetries) {
+                    const delay = Math.min(1000 * Math.pow(2, retryCount), 5000);
+                    console.log(`Detected placeholder response, retrying in ${delay}ms (attempt ${retryCount + 1}/${maxRetries})`);
+                    isProcessingWorkflowRef.current = false;
+
+                    setTimeout(() => {
+                      continueWorkflow(resumeUrl, actionPayload, retryCount + 1, maxRetries);
+                    }, delay);
+                    return;
+                  } else {
+                    console.warn('Max retries reached for placeholder response, giving up');
+                    continue; // Skip this line and continue processing
+                  }
+                }
+
                 // Process this response
                 processResponse(data);
 
@@ -188,6 +229,26 @@ export default function CustomChatInterface({ sessionId, onMessageSent, onVisual
           try {
             const data = JSON.parse(buffer);
             console.log('Resume URL buffer data:', data);
+
+            // Check if this is a placeholder response that needs retry
+            if (isPlaceholderResponse(data)) {
+              if (retryCount < maxRetries) {
+                const delay = Math.min(1000 * Math.pow(2, retryCount), 5000); // Exponential backoff, max 5s
+                console.log(`Detected placeholder response, retrying in ${delay}ms (attempt ${retryCount + 1}/${maxRetries})`);
+                isProcessingWorkflowRef.current = false;
+
+                setTimeout(() => {
+                  continueWorkflow(resumeUrl, actionPayload, retryCount + 1, maxRetries);
+                }, delay);
+                return;
+              } else {
+                console.warn('Max retries reached for placeholder response, giving up');
+                isProcessingWorkflowRef.current = false;
+                return;
+              }
+            }
+
+            // Process valid response
             processResponse(data);
 
             const nextResumeUrl = data.resumeUrl || data.resume_url;
@@ -211,6 +272,26 @@ export default function CustomChatInterface({ sessionId, onMessageSent, onVisual
 
         try {
           const data = JSON.parse(responseText);
+
+          // Check if this is a placeholder response that needs retry
+          if (isPlaceholderResponse(data)) {
+            if (retryCount < maxRetries) {
+              const delay = Math.min(1000 * Math.pow(2, retryCount), 5000); // Exponential backoff, max 5s
+              console.log(`Detected placeholder response, retrying in ${delay}ms (attempt ${retryCount + 1}/${maxRetries})`);
+              isProcessingWorkflowRef.current = false;
+
+              setTimeout(() => {
+                continueWorkflow(resumeUrl, actionPayload, retryCount + 1, maxRetries);
+              }, delay);
+              return;
+            } else {
+              console.warn('Max retries reached for placeholder response, giving up');
+              isProcessingWorkflowRef.current = false;
+              return;
+            }
+          }
+
+          // Process valid response
           processResponse(data);
 
           const nextResumeUrl = data.resumeUrl || data.resume_url;
