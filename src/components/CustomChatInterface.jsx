@@ -14,9 +14,11 @@ export default function CustomChatInterface({ sessionId, onMessageSent, onVisual
   const [inputValue, setInputValue] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [speaking, setSpeaking] = useState(null);
+  const [currentResumeUrl, setCurrentResumeUrl] = useState(null);
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
   const abortControllerRef = useRef(null);
+  const isProcessingWorkflowRef = useRef(false);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -35,11 +37,11 @@ export default function CustomChatInterface({ sessionId, onMessageSent, onVisual
     }
 
     const utterance = new SpeechSynthesisUtterance(text);
-    
-    utterance.rate = 1.0; 
-    utterance.pitch = 1.0; 
-    utterance.volume = 1.0; 
-    
+
+    utterance.rate = 1.0;
+    utterance.pitch = 1.0;
+    utterance.volume = 1.0;
+
     const voices = window.speechSynthesis.getVoices();
     const englishVoice = voices.find(voice => voice.lang.startsWith('en-'));
     if (englishVoice) {
@@ -51,6 +53,185 @@ export default function CustomChatInterface({ sessionId, onMessageSent, onVisual
     utterance.onerror = () => setSpeaking(null);
 
     window.speechSynthesis.speak(utterance);
+  };
+
+  // Process a single response based on its type
+  const processResponse = (data) => {
+    console.log('Processing response:', data);
+
+    const responseType = data.type || 'answer';
+
+    // Handle visualization type - only update visualization panel, don't add to chat
+    if (responseType === 'visualization') {
+      const embedUrl = data.embedUrl || data.embed_url;
+      if (embedUrl && onVisualizationData) {
+        console.log('Updating visualization panel with:', embedUrl);
+        onVisualizationData({
+          embedUrl: embedUrl,
+          cardId: data.cardId || data.card_id,
+          cardName: data.cardName || data.card_name,
+          sqlQuery: data.sqlQuery || data.sql_query,
+          data: data.data,
+          timestamp: data.timestamp
+        });
+      }
+      return;
+    }
+
+    // For all other types (answer, status, followup), add to chat
+    const messageContent = data.message || data.answer;
+    if (messageContent !== undefined) {
+      const messageId = `assistant-${Date.now()}-${Math.random()}`;
+      const newMessage = {
+        id: messageId,
+        type: 'assistant',
+        content: messageContent,
+        timestamp: Date.now(),
+        responseType: responseType
+      };
+
+      // Add actions if present (for followup type)
+      if (data.actions && Array.isArray(data.actions)) {
+        newMessage.actions = data.actions;
+      }
+
+      setMessages(prev => [...prev, newMessage]);
+    }
+  };
+
+  // Continue workflow by calling resume URL
+  const continueWorkflow = async (resumeUrl, actionPayload = null) => {
+    if (!resumeUrl || isProcessingWorkflowRef.current) {
+      console.log('Skipping continueWorkflow:', { resumeUrl, isProcessing: isProcessingWorkflowRef.current });
+      return;
+    }
+
+    isProcessingWorkflowRef.current = true;
+    console.log('Calling continueWorkflow with resumeUrl:', resumeUrl);
+
+    try {
+      const requestBody = actionPayload
+        ? { action: actionPayload.action, sessionId }
+        : {};
+
+      console.log('Resume URL request body:', requestBody);
+
+      const response = await fetch(resumeUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(requestBody)
+      });
+
+      console.log('Resume URL response status:', response.status);
+
+      if (!response.ok) {
+        console.warn('Resume URL response not OK:', response.status);
+        isProcessingWorkflowRef.current = false;
+        return;
+      }
+
+      const contentType = response.headers.get('content-type') || '';
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      if (reader) {
+        // Handle streaming response
+        while (true) {
+          const { done, value } = await reader.read();
+
+          if (done) {
+            console.log('Resume URL stream ended');
+            break;
+          }
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+
+          for (const line of lines) {
+            if (line.trim()) {
+              try {
+                const data = JSON.parse(line);
+                console.log('Resume URL response data:', data);
+
+                // Process this response
+                processResponse(data);
+
+                // Check for next resumeUrl
+                const nextResumeUrl = data.resumeUrl || data.resume_url;
+                if (nextResumeUrl) {
+                  console.log('Found next resumeUrl:', nextResumeUrl);
+
+                  // If response has actions, store resumeUrl for button clicks
+                  if (data.actions && Array.isArray(data.actions) && data.actions.length > 0) {
+                    console.log('Storing resumeUrl for action buttons');
+                    setCurrentResumeUrl(nextResumeUrl);
+                  } else {
+                    // Otherwise, recursively continue workflow
+                    isProcessingWorkflowRef.current = false;
+                    await continueWorkflow(nextResumeUrl);
+                    return; // Important: return to avoid setting isProcessing to false twice
+                  }
+                }
+              } catch (e) {
+                console.error('Error parsing resume URL response line:', e, 'Line:', line);
+              }
+            }
+          }
+        }
+
+        // Process any remaining buffer
+        if (buffer.trim()) {
+          try {
+            const data = JSON.parse(buffer);
+            console.log('Resume URL buffer data:', data);
+            processResponse(data);
+
+            const nextResumeUrl = data.resumeUrl || data.resume_url;
+            if (nextResumeUrl) {
+              if (data.actions && Array.isArray(data.actions) && data.actions.length > 0) {
+                setCurrentResumeUrl(nextResumeUrl);
+              } else {
+                isProcessingWorkflowRef.current = false;
+                await continueWorkflow(nextResumeUrl);
+                return;
+              }
+            }
+          } catch (e) {
+            console.error('Error parsing resume URL buffer:', e);
+          }
+        }
+      } else {
+        // Handle non-streaming response
+        const responseText = await response.text();
+        console.log('Resume URL non-streaming response:', responseText);
+
+        try {
+          const data = JSON.parse(responseText);
+          processResponse(data);
+
+          const nextResumeUrl = data.resumeUrl || data.resume_url;
+          if (nextResumeUrl) {
+            if (data.actions && Array.isArray(data.actions) && data.actions.length > 0) {
+              setCurrentResumeUrl(nextResumeUrl);
+            } else {
+              isProcessingWorkflowRef.current = false;
+              await continueWorkflow(nextResumeUrl);
+              return;
+            }
+          }
+        } catch (e) {
+          console.error('Error parsing resume URL response:', e);
+        }
+      }
+    } catch (error) {
+      console.error('Error in continueWorkflow:', error);
+    } finally {
+      isProcessingWorkflowRef.current = false;
+    }
   };
 
   const handleSendMessage = async () => {
@@ -68,142 +249,13 @@ export default function CustomChatInterface({ sessionId, onMessageSent, onVisual
     setMessages(prev => [...prev, userMessage]);
     setInputValue('');
     setIsLoading(true);
+    setCurrentResumeUrl(null); // Clear any stored resume URL from previous interaction
 
     if (onMessageSent) {
       onMessageSent(userMessage);
     }
 
     abortControllerRef.current = new AbortController();
-    let resumeUrlCalled = false; // Track if resume URL has been called
-
-    const callResumeUrl = (resumeUrl) => {
-      if (resumeUrl && !resumeUrlCalled) {
-        resumeUrlCalled = true;
-        console.log('Calling resume URL (Stage 2):', resumeUrl);
-        
-        setTimeout(() => {
-          fetch(resumeUrl, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({})
-          })
-            .then(async response => {
-              console.log('Resume URL response status:', response.status);
-              
-              if (response.ok) {
-                try {
-                  const responseText = await response.text();
-                  console.log('Resume URL response text:', responseText);
-                  
-                  let responseData;
-                  try {
-                    responseData = JSON.parse(responseText);
-                    console.log('Resume URL response data (parsed):', responseData);
-                  } catch (parseError) {
-                    const lines = responseText.trim().split('\n');
-                    console.log(`Resume URL response has ${lines.length} line(s)`);
-                    
-                    for (const line of lines) {
-                      if (line.trim()) {
-                        try {
-                          responseData = JSON.parse(line);
-                          console.log('Parsed resume URL response line:', responseData);
-                          handleResumeUrlResponse(responseData);
-                        } catch (e) {
-                          console.error('Failed to parse resume URL response line:', e);
-                        }
-                      }
-                    }
-                    return; 
-                  }
-                  
-                  handleResumeUrlResponse(responseData);
-                } catch (error) {
-                  console.error('Error processing resume URL response:', error);
-                }
-              } else {
-                console.warn('Resume URL response not OK:', response.status);
-              }
-            })
-            .catch(error => {
-              console.error('Error calling resume URL:', error);
-            });
-        }, 100); 
-      }
-    };
-
-    const handleResumeUrlResponse = (data) => {
-      console.log('Processing resume URL response:', data);
-      
-      if (!onVisualizationData) {
-        console.error('onVisualizationData callback is not available!');
-        return;
-      }
-      
-      if (Array.isArray(data)) {
-        console.log('Resume URL response is array with', data.length, 'items');
-        data.forEach((item, index) => {
-          console.log(`Processing resume URL response item ${index}:`, item);
-          
-          const embedUrl = item.embedUrl || item.embed_url;
-          if (embedUrl) {
-            console.log('Found embedUrl in resume URL response item:', embedUrl);
-            onVisualizationData({
-              embedUrl: embedUrl,
-              cardId: item.cardId || item.card_id,
-              cardName: item.cardName || item.card_name,
-              sqlQuery: item.sqlQuery || item.sql_query,
-              data: item.data,
-              timestamp: item.timestamp
-            });
-          }
-          
-          const messageContent = item.message || item.answer;
-          if (messageContent !== undefined) {
-            const messageId = `assistant-${Date.now()}-${Math.random()}`;
-            setMessages(prev => [...prev, {
-              id: messageId,
-              type: 'assistant',
-              content: messageContent,
-              timestamp: Date.now(),
-              actions: item.actions
-            }]);
-          }
-        });
-      } else {
-        console.log('Resume URL response is single object');
-        
-        const embedUrl = data.embedUrl || data.embed_url;
-        console.log('Resume URL response embedUrl check:', { embedUrl: data.embedUrl, embed_url: data.embed_url, result: embedUrl });
-        if (embedUrl) {
-          console.log('Found embedUrl in resume URL response, calling onVisualizationData:', embedUrl);
-          onVisualizationData({
-            embedUrl: embedUrl,
-            cardId: data.cardId || data.card_id,
-            cardName: data.cardName || data.card_name,
-            sqlQuery: data.sqlQuery || data.sql_query,
-            data: data.data,
-            timestamp: data.timestamp
-          });
-        } else {
-          console.log('No embedUrl found in resume URL response');
-        }
-        
-        const messageContent = data.message || data.answer;
-        if (messageContent !== undefined) {
-          const messageId = `assistant-${Date.now()}-${Math.random()}`;
-          setMessages(prev => [...prev, {
-            id: messageId,
-            type: 'assistant',
-            content: messageContent,
-            timestamp: Date.now(),
-            actions: data.actions
-          }]);
-        }
-      }
-    };
 
     try {
       const response = await apiService.sendMessage(messageText, sessionId, abortControllerRef.current.signal);
@@ -212,286 +264,85 @@ export default function CustomChatInterface({ sessionId, onMessageSent, onVisual
         throw new Error(`HTTP error! status: ${response.status}`);
       }
 
-      const contentType = response.headers.get('content-type') || '';
       const reader = response.body?.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
+      let firstResumeUrl = null;
 
-      console.log('Response received, content-type:', contentType);
-      console.log('Has reader?', !!reader);
+      console.log('Initial webhook response received');
 
       if (reader) {
-        let payloadCount = 0;
-        let streamClosed = false;
-        
+        // Handle streaming response
         while (true) {
           const { done, value } = await reader.read();
-          
+
           if (done) {
-            console.log('Stream ended. Total payloads processed:', payloadCount);
-            streamClosed = true;
-            
-            // If we haven't received the second payload yet, wait a bit longer
-            // The resume URL triggers the workflow to send the second payload
-            if (!streamClosed || payloadCount === 0) {
-              console.log('Stream closed but may receive more data after resume URL call...');
-            }
+            console.log('Initial webhook stream ended');
             break;
           }
 
           buffer += decoder.decode(value, { stream: true });
           const lines = buffer.split('\n');
-          buffer = lines.pop() || ''; 
-
-          console.log(`Processing ${lines.length} line(s) from stream chunk`);
+          buffer = lines.pop() || '';
 
           for (const line of lines) {
             if (line.trim()) {
               try {
-                payloadCount++;
                 const data = JSON.parse(line);
-                
-                console.log(`[Payload #${payloadCount}] Parsed streaming response data:`, data);
-                console.log(`[Payload #${payloadCount}] Is array?`, Array.isArray(data));
-                console.log(`[Payload #${payloadCount}] Has embedUrl?`, !!(data.embedUrl || data.embed_url));
-                console.log(`[Payload #${payloadCount}] Has message/answer?`, !!(data.message || data.answer));
-                
-                if (Array.isArray(data)) {
-                  console.log('Processing array in streaming response with', data.length, 'items');
-                  data.forEach((item, index) => {
-                    console.log(`Processing streaming array item ${index}:`, item);
-                    
-                    const resumeUrl = item.resumeUrl || item.resume_url;
-                    if (resumeUrl && !resumeUrlCalled) {
-                      console.log('Found resumeUrl in streaming array item:', resumeUrl);
-                      callResumeUrl(resumeUrl);
-                    }
-                    
-                    const itemEmbedUrl = item.embedUrl || item.embed_url;
-                    console.log(`Streaming item ${index} embedUrl check:`, { embedUrl: item.embedUrl, embed_url: item.embed_url, result: itemEmbedUrl });
-                    if (itemEmbedUrl && onVisualizationData) {
-                      console.log('Found embedUrl in streaming array item:', itemEmbedUrl);
-                      onVisualizationData({
-                        embedUrl: itemEmbedUrl,
-                        cardId: item.cardId || item.card_id,
-                        cardName: item.cardName || item.card_name,
-                        sqlQuery: item.sqlQuery || item.sql_query,
-                        data: item.data,
-                        timestamp: item.timestamp
-                      });
-                    }
-                    
-                    const itemMessage = item.message || item.answer;
-                    if (itemMessage !== undefined) {
-                      const messageId = `assistant-${Date.now()}-${Math.random()}`;
-                      setMessages(prev => [...prev, {
-                        id: messageId,
-                        type: 'assistant',
-                        content: itemMessage,
-                        timestamp: Date.now(),
-                        actions: item.actions
-                      }]);
-                    }
-                  });
-                } else {
-                  // Check for resume URL first (before message check)
-                  if (data.resumeUrl && !resumeUrlCalled) {
-                    console.log('Found resumeUrl in streaming response:', data.resumeUrl);
-                    callResumeUrl(data.resumeUrl);
-                  }
-                  
-                  const embedUrl = data.embedUrl || data.embed_url;
-                  console.log(`[Payload #${payloadCount}] Streaming single object embedUrl check:`, { embedUrl: data.embedUrl, embed_url: data.embed_url, result: embedUrl, hasCallback: !!onVisualizationData });
-                  if (embedUrl) {
-                    if (onVisualizationData) {
-                      console.log(`[Payload #${payloadCount}] Found embedUrl in streaming response, calling onVisualizationData:`, embedUrl);
-                      onVisualizationData({
-                        embedUrl: embedUrl,
-                        cardId: data.cardId || data.card_id,
-                        cardName: data.cardName || data.card_name,
-                        sqlQuery: data.sqlQuery || data.sql_query,
-                        data: data.data,
-                        timestamp: data.timestamp
-                      });
-                    } else {
-                      console.warn(`[Payload #${payloadCount}] embedUrl found but onVisualizationData callback is not provided!`);
-                    }
-                  } else {
-                    console.log(`[Payload #${payloadCount}] No embedUrl in this payload`);
-                  }
-                  
-                  const messageContent = data.message || data.answer;
-                  if (messageContent !== undefined) {
-                  const messageId = `assistant-${Date.now()}-${Math.random()}`;
-                  setMessages(prev => [...prev, {
-                    id: messageId,
-                      type: 'assistant',
-                      content: messageContent,
-                    timestamp: Date.now(),
-                    actions: data.actions
-                  }]);
-                  }
+                console.log('Initial webhook response data:', data);
+
+                // Process this response
+                processResponse(data);
+
+                // Check for resumeUrl to continue workflow
+                const resumeUrl = data.resumeUrl || data.resume_url;
+                if (resumeUrl && !firstResumeUrl) {
+                  firstResumeUrl = resumeUrl;
                 }
               } catch (e) {
-                console.error('Error parsing streaming line:', e, 'Line:', line);
-                if (line.trim()) {
-                  const messageId = `assistant-${Date.now()}-${Math.random()}`;
-                  setMessages(prev => [...prev, {
-                    id: messageId,
-                    type: 'assistant',
-                    content: line.trim(),
-                    timestamp: Date.now()
-                  }]);
-                }
+                console.error('Error parsing initial response line:', e, 'Line:', line);
               }
             }
           }
         }
 
-        // Process any remaining buffer - might contain multiple JSON objects separated by newlines
+        // Process any remaining buffer
         if (buffer.trim()) {
-          console.log('Processing buffer:', buffer);
-          const bufferLines = buffer.trim().split('\n');
-          console.log(`Buffer has ${bufferLines.length} potential JSON object(s)`);
-          
-          for (const line of bufferLines) {
-            if (line.trim()) {
-              try {
-                const data = JSON.parse(line);
-                payloadCount++;
-                console.log(`[Buffer Payload #${payloadCount}] Parsed buffer data:`, data);
-                
-                if (data.resumeUrl && !resumeUrlCalled) {
-                  console.log(`[Buffer Payload #${payloadCount}] Found resumeUrl in buffer:`, data.resumeUrl);
-                  callResumeUrl(data.resumeUrl);
-                }
-                
-                const embedUrl = data.embedUrl || data.embed_url;
-                if (embedUrl && onVisualizationData) {
-                  console.log(`[Buffer Payload #${payloadCount}] Found embedUrl in buffer:`, embedUrl);
-                  onVisualizationData({
-                    embedUrl: embedUrl,
-                    cardId: data.cardId || data.card_id,
-                    cardName: data.cardName || data.card_name,
-                    sqlQuery: data.sqlQuery || data.sql_query,
-                    data: data.data,
-                    timestamp: data.timestamp
-                  });
-                }
-                
-                const messageContent = data.message || data.answer;
-                if (messageContent !== undefined) {
-              const messageId = `assistant-${Date.now()}-${Math.random()}`;
-              setMessages(prev => [...prev, {
-                id: messageId,
-                    type: 'assistant',
-                    content: messageContent,
-                timestamp: Date.now(),
-                actions: data.actions
-              }]);
+          try {
+            const data = JSON.parse(buffer);
+            console.log('Initial webhook buffer data:', data);
+            processResponse(data);
+
+            const resumeUrl = data.resumeUrl || data.resume_url;
+            if (resumeUrl && !firstResumeUrl) {
+              firstResumeUrl = resumeUrl;
             }
           } catch (e) {
-                console.error('Error parsing buffer line:', e, 'Line:', line);
-                if (line.trim()) {
-              const messageId = `assistant-${Date.now()}-${Math.random()}`;
-              setMessages(prev => [...prev, {
-                id: messageId,
-                type: 'assistant',
-                    content: line.trim(),
-                timestamp: Date.now()
-              }]);
-                }
-              }
-            }
+            console.error('Error parsing initial buffer:', e);
           }
         }
       } else {
+        // Handle non-streaming response
         const responseText = await response.text();
-        console.log('Non-streaming response text:', responseText);
-        
-        let data;
+        console.log('Initial webhook non-streaming response:', responseText);
+
         try {
-          data = JSON.parse(responseText);
-          console.log('Non-streaming response data (parsed):', data);
-          console.log('Is array?', Array.isArray(data));
-        } catch (parseError) {
-          console.error('Failed to parse non-streaming response:', parseError);
-          throw new Error('Invalid JSON response');
-        }
-        
-        if (data.resumeUrl && !resumeUrlCalled) {
-          console.log('Found resumeUrl in non-streaming response:', data.resumeUrl);
-          callResumeUrl(data.resumeUrl);
-        }
-        
-        const embedUrl = data.embedUrl || data.embed_url;
-        if (embedUrl && onVisualizationData) {
-          console.log('Found embedUrl in non-streaming response:', embedUrl);
-          onVisualizationData({
-            embedUrl: embedUrl,
-            cardId: data.cardId || data.card_id,
-            cardName: data.cardName || data.card_name,
-            sqlQuery: data.sqlQuery || data.sql_query,
-            data: data.data,
-            timestamp: data.timestamp
-          });
-        }
-        
-        if (Array.isArray(data)) {
-          console.log('Processing array response with', data.length, 'items');
-          data.forEach((item, index) => {
-            console.log(`Processing array item ${index}:`, item);
-            
-            const resumeUrl = item.resumeUrl || item.resume_url;
-            if (resumeUrl && !resumeUrlCalled) {
-              console.log('Found resumeUrl in array item:', resumeUrl);
-              callResumeUrl(resumeUrl);
-            }
-            
-            const itemEmbedUrl = item.embedUrl || item.embed_url;
-            console.log(`Item ${index} embedUrl check:`, { embedUrl: item.embedUrl, embed_url: item.embed_url, result: itemEmbedUrl });
-            if (itemEmbedUrl && onVisualizationData) {
-              console.log('Found embedUrl in array item:', itemEmbedUrl);
-              onVisualizationData({
-                embedUrl: itemEmbedUrl,
-                cardId: item.cardId || item.card_id,
-                cardName: item.cardName || item.card_name,
-                sqlQuery: item.sqlQuery || item.sql_query,
-                data: item.data,
-                timestamp: item.timestamp
-              });
-            } else {
-              console.log(`No embedUrl found in item ${index} or onVisualizationData not provided`, {
-                hasEmbedUrl: !!itemEmbedUrl,
-                hasCallback: !!onVisualizationData
-              });
-            }
-            
-            const itemMessage = item.message || item.answer;
-            if (itemMessage !== undefined) {
-              const messageId = `assistant-${Date.now()}-${Math.random()}`;
-              setMessages(prev => [...prev, {
-                id: messageId,
-                type: 'assistant',
-                content: itemMessage,
-                timestamp: Date.now(),
-                actions: item.actions
-              }]);
-            }
-          });
-        } else {
-          const messageContent = data.message || data.answer;
-          if (messageContent !== undefined) {
-            const messageId = `assistant-${Date.now()}`;
-            setMessages(prev => [...prev, {
-              id: messageId,
-              type: 'assistant',
-              content: messageContent,
-              timestamp: Date.now(),
-              actions: data.actions
-            }]);
+          const data = JSON.parse(responseText);
+          processResponse(data);
+
+          const resumeUrl = data.resumeUrl || data.resume_url;
+          if (resumeUrl) {
+            firstResumeUrl = resumeUrl;
           }
+        } catch (e) {
+          console.error('Error parsing initial response:', e);
         }
+      }
+
+      // If we got a resumeUrl, start the continuation workflow
+      if (firstResumeUrl) {
+        console.log('Starting continuation workflow with resumeUrl:', firstResumeUrl);
+        await continueWorkflow(firstResumeUrl);
       }
     } catch (error) {
       if (error.name === 'AbortError') {
@@ -522,7 +373,32 @@ export default function CustomChatInterface({ sessionId, onMessageSent, onVisual
   };
 
   const handleActionClick = async (action) => {
-    if (action.type === 'button' && action.payload) {
+    console.log('Action clicked:', action);
+    console.log('Current resume URL:', currentResumeUrl);
+
+    // If there's a stored resume URL, use it for the action
+    if (currentResumeUrl) {
+      setIsLoading(true);
+
+      // Add a user message showing which action was clicked
+      const actionMessage = {
+        id: `user-${Date.now()}`,
+        type: 'user',
+        content: action.label || action.text || 'Action selected',
+        timestamp: Date.now()
+      };
+      setMessages(prev => [...prev, actionMessage]);
+
+      // Call the resume URL with the action payload
+      await continueWorkflow(currentResumeUrl, {
+        action: action.id || action.type,
+        sessionId: sessionId
+      });
+
+      setIsLoading(false);
+      setCurrentResumeUrl(null); // Clear after use
+    } else if (action.type === 'button' && action.payload) {
+      // Fallback to old behavior if no resume URL
       setInputValue(action.payload);
       setTimeout(() => {
         handleSendMessage();
