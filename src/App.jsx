@@ -35,7 +35,11 @@ const App = () => {
   };
 
   return (
-    <div className="flex h-screen bg-gray-100 overflow-hidden">
+    <div className="flex h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 overflow-hidden relative">
+      {/* Ambient background effects */}
+      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-blue-900/10 via-transparent to-transparent pointer-events-none"></div>
+      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_bottom_left,_var(--tw-gradient-stops))] from-purple-900/10 via-transparent to-transparent pointer-events-none"></div>
+      
       {/* Sidebar */}
       {isSidebarOpen && (
         <Sidebar 
@@ -50,13 +54,13 @@ const App = () => {
 
       {/* Collapsed Sidebar Button */}
       {!isSidebarOpen && (
-        <div className="border-r border-gray-200 bg-white flex items-center justify-center px-2 shadow-sm">
+        <div className="bg-slate-800/60 backdrop-blur-xl border-r border-slate-700/50 flex items-center justify-center px-3 relative z-10">
           <button
             onClick={() => setIsSidebarOpen(true)}
-            className="p-2.5 text-gray-500 hover:bg-blue-50 hover:text-blue-600 rounded-lg transition-all duration-200"
+            className="p-3 text-slate-400 hover:text-blue-400 hover:bg-slate-700/50 rounded-xl transition-all duration-300 group shadow-lg"
             title="Show sidebar"
           >
-            <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <svg className="w-5 h-5 transform group-hover:translate-x-0.5 transition-transform" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <polyline points="9 18 15 12 9 6"></polyline>
             </svg>
           </button>
@@ -64,24 +68,24 @@ const App = () => {
       )}
 
       {/* Main Content Area */}
-      <div className="flex flex-1 min-w-0 overflow-hidden">
+      <div className="flex flex-1 min-w-0 overflow-hidden gap-4 p-4 relative z-10">
         {/* Chat Section */}
-        <div style={{ width: `${100 - visualizationWidth}%` }} className="flex flex-col min-w-0 bg-white border-r border-gray-200">
+        <div style={{ width: `${100 - visualizationWidth}%` }} className="flex flex-col min-w-0 bg-slate-800/50 backdrop-blur-2xl rounded-3xl border border-slate-700/50 shadow-2xl overflow-hidden hover:border-slate-600/50 transition-all duration-300">
           <ChatSection key={chatKey} chatKey={chatKey} selectedHistoryItem={selectedHistoryItem} onClearHistory={handleNewChat} onVisualizationData={handleVisualizationData} />
         </div>
 
         {/* Resize Divider */}
         <div
-          className="w-1 bg-gradient-to-b from-gray-300 to-gray-200 hover:from-blue-400 hover:to-blue-300 cursor-col-resize flex-shrink-0 transition-all duration-200 group relative"
+          className="w-1.5 bg-gradient-to-b from-slate-700/30 via-blue-500/30 to-slate-700/30 hover:from-blue-400/60 hover:via-blue-500/80 hover:to-blue-400/60 cursor-col-resize flex-shrink-0 transition-all duration-300 group relative rounded-full"
           onMouseDown={startVisualizationResizing}
         >
           <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-            <div className="w-1 h-20 bg-blue-500 rounded-full"></div>
+            <div className="w-1.5 h-32 bg-gradient-to-b from-blue-400 via-blue-500 to-blue-400 rounded-full shadow-2xl shadow-blue-500/60"></div>
           </div>
         </div>
 
         {/* Visualization Section */}
-        <div style={{ width: `${visualizationWidth}%` }} className="min-w-0 bg-white">
+        <div style={{ width: `${visualizationWidth}%` }} className="min-w-0 bg-slate-800/50 backdrop-blur-2xl rounded-3xl border border-slate-700/50 shadow-2xl overflow-hidden hover:border-slate-600/50 transition-all duration-300">
           <VisualizationPanel selectedItem={selectedHistoryItem} chatKey={chatKey} visualizationData={visualizationData} />
         </div>
       </div>

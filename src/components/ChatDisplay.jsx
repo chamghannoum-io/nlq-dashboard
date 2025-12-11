@@ -37,21 +37,23 @@ export default function ChatDisplay({ messages, isHistorical }) {
 
   if (!messages || messages.length === 0) {
     return (
-      <div className="flex items-center justify-center h-full bg-gray-50">
+      <div className="flex items-center justify-center h-full bg-transparent">
         <div className="text-center">
-          <Bot className="w-20 h-20 mx-auto mb-4 opacity-30 text-gray-400" />
-          <p className="text-gray-500 font-medium">No messages to display</p>
+          <div className="w-24 h-24 mx-auto mb-5 bg-slate-700/30 rounded-3xl flex items-center justify-center">
+            <Bot className="w-12 h-12 text-slate-500" />
+          </div>
+          <p className="text-slate-300 font-semibold text-lg">No messages to display</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="flex flex-col h-full bg-gradient-to-b from-gray-50 to-white">
+    <div className="flex flex-col h-full bg-transparent">
       {/* Historical Banner */}
       {isHistorical && (
-        <div className="bg-blue-50 border-b border-blue-200 px-6 py-3 shadow-sm">
-          <div className="flex items-center gap-2 text-blue-800">
+        <div className="bg-blue-500/20 border-b border-blue-500/30 px-6 py-3 backdrop-blur-sm">
+          <div className="flex items-center gap-2 text-blue-300">
             <History className="w-4 h-4" />
             <p className="text-sm font-medium">Viewing historical conversation</p>
           </div>
@@ -66,10 +68,10 @@ export default function ChatDisplay({ messages, isHistorical }) {
             {msg.question && (
               <div className="flex justify-end">
                 <div className="flex items-end gap-3 max-w-[75%]">
-                  <div className="bg-blue-600 text-white rounded-2xl rounded-br-sm px-5 py-3 shadow-md">
+                  <div className="bg-gradient-to-r from-blue-600 to-blue-500 text-white rounded-2xl rounded-br-md px-5 py-4 shadow-xl shadow-blue-500/20">
                     <p className="text-sm leading-relaxed">{msg.question}</p>
                   </div>
-                  <div className="w-9 h-9 bg-blue-600 rounded-full flex items-center justify-center flex-shrink-0 shadow-md">
+                  <div className="w-10 h-10 bg-gradient-to-br from-blue-600 to-blue-500 rounded-2xl flex items-center justify-center flex-shrink-0 shadow-lg shadow-blue-500/30">
                     <User className="w-5 h-5 text-white" />
                   </div>
                 </div>
@@ -80,29 +82,29 @@ export default function ChatDisplay({ messages, isHistorical }) {
             {msg.answer && (
               <div className="flex justify-start">
                 <div className="flex items-end gap-3 max-w-[75%]">
-                  <div className="w-9 h-9 bg-gray-200 rounded-full flex items-center justify-center flex-shrink-0 shadow-md">
-                    <Bot className="w-5 h-5 text-gray-700" />
+                  <div className="w-10 h-10 bg-gradient-to-br from-purple-500 via-blue-500 to-blue-600 rounded-2xl flex items-center justify-center flex-shrink-0 shadow-lg shadow-blue-500/30">
+                    <Bot className="w-5 h-5 text-white" />
                   </div>
-                  <div className="bg-white rounded-2xl rounded-bl-sm px-5 py-3 shadow-md border border-gray-200">
-                    <p className="text-sm text-gray-800 leading-relaxed">{msg.answer}</p>
-                    <div className="flex items-center justify-between mt-3 pt-2 border-t border-gray-100">
+                  <div className="bg-slate-700/50 backdrop-blur-sm rounded-2xl rounded-bl-md px-5 py-4 shadow-xl border border-slate-600/50">
+                    <p className="text-sm text-slate-200 leading-relaxed">{msg.answer}</p>
+                    <div className="flex items-center justify-between mt-3 pt-3 border-t border-slate-600/50">
                       {msg.timestamp && (
-                        <div className="flex items-center gap-1">
-                          <Clock className="w-3 h-3 text-gray-400" />
-                          <p className="text-xs text-gray-500">
+                        <div className="flex items-center gap-1.5">
+                          <Clock className="w-3.5 h-3.5 text-slate-400" />
+                          <p className="text-xs text-slate-400">
                             {new Date(msg.timestamp).toLocaleString()}
                           </p>
                         </div>
                       )}
                       <button
                         onClick={() => speakText(msg.answer, idx)}
-                        className="p-1.5 hover:bg-gray-100 rounded-full transition-colors"
+                        className="p-1.5 hover:bg-slate-600/50 rounded-lg transition-all duration-200"
                         title={speaking === idx ? "Stop speaking" : "Read aloud"}
                       >
                         {speaking === idx ? (
-                          <VolumeX className="w-4 h-4 text-blue-600" />
+                          <VolumeX className="w-4 h-4 text-blue-400" />
                         ) : (
-                          <Volume2 className="w-4 h-4 text-gray-500 hover:text-blue-600 transition-colors" />
+                          <Volume2 className="w-4 h-4 text-slate-400 hover:text-blue-400 transition-colors" />
                         )}
                       </button>
                     </div>

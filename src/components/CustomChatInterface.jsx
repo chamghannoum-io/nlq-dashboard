@@ -55,26 +55,291 @@ export default function CustomChatInterface({ sessionId, onMessageSent, onVisual
     window.speechSynthesis.speak(utterance);
   };
 
+  // Parse table from markdown-style format
+  const parseTable = (lines, startIndex) => {
+    const tableLines = [];
+    let i = startIndex;
+    
+    // Find header row
+    if (i >= lines.length) return null;
+    const headerLine = lines[i].trim();
+    if (!headerLine.includes('|')) return null;
+    
+    const headers = headerLine.split('|').map(h => h.trim()).filter(h => h);
+    if (headers.length === 0) return null;
+    
+    i++;
+    
+    // Skip separator row (---|---|---)
+    if (i < lines.length && lines[i].trim().match(/^[\s\-\|:]+$/)) {
+      i++;
+    }
+    
+    // Collect data rows
+    const rows = [];
+    while (i < lines.length) {
+      const line = lines[i].trim();
+      if (!line || !line.includes('|')) break;
+      
+      const cells = line.split('|').map(c => c.trim()).filter(c => c);
+      if (cells.length > 0) {
+        rows.push(cells);
+      }
+      i++;
+    }
+    
+    if (rows.length === 0) return null;
+    
+    return {
+      type: 'table',
+      headers,
+      rows,
+      endIndex: i - 1
+    };
+  };
+
+  // Format structured messages with proper styling
+  const formatMessage = (content) => {
+    if (!content) return null;
+
+    const lines = content.split('\n');
+    const elements = [];
+    let currentSection = [];
+    let i = 0;
+
+    while (i < lines.length) {
+      const trimmed = lines[i].trim();
+      
+      // Empty line - end current section
+      if (!trimmed) {
+        if (currentSection.length > 0) {
+          elements.push({ type: 'section', content: currentSection });
+          currentSection = [];
+        }
+        i++;
+        continue;
+      }
+
+      // Check for table
+      const table = parseTable(lines, i);
+      if (table) {
+        if (currentSection.length > 0) {
+          elements.push({ type: 'section', content: currentSection });
+          currentSection = [];
+        }
+        elements.push(table);
+        i = table.endIndex + 1;
+        continue;
+      }
+
+      // Check for main header (contains "Alert", "Status", or starts with numbers)
+      if (trimmed.includes('Alert') || trimmed.includes('Status') || /^\d+/.test(trimmed)) {
+        if (currentSection.length > 0) {
+          elements.push({ type: 'section', content: currentSection });
+          currentSection = [];
+        }
+        elements.push({ type: 'header', content: trimmed });
+        i++;
+        continue;
+      }
+
+      // Check for sub-header (Critical Priorities, Total, Regional, Select, Shortage Details)
+      if (trimmed.includes('Priorities:') || trimmed.startsWith('Total') || trimmed.startsWith('Regional') || trimmed.startsWith('Select') || trimmed.includes('Details')) {
+        if (currentSection.length > 0) {
+          elements.push({ type: 'section', content: currentSection });
+          currentSection = [];
+        }
+        elements.push({ type: 'subheader', content: trimmed });
+        i++;
+        continue;
+      }
+
+      // Check for bullet points
+      if (trimmed.startsWith('•')) {
+        currentSection.push({ type: 'bullet', content: trimmed.substring(1).trim() });
+        i++;
+        continue;
+      }
+
+      // Regular text
+      currentSection.push({ type: 'text', content: trimmed });
+      i++;
+    }
+
+    // Add remaining section
+    if (currentSection.length > 0) {
+      elements.push({ type: 'section', content: currentSection });
+    }
+
+    return elements;
+  };
+
+  // Render formatted message content - clean standard template for all messages
+  const renderFormattedMessage = (content) => {
+    const formatted = formatMessage(content);
+    
+    if (!formatted || formatted.length === 0) {
+      return <p className="text-sm text-slate-200 leading-relaxed whitespace-pre-wrap">{content}</p>;
+    }
+
+    return (
+      <div className="text-sm text-slate-200 leading-relaxed space-y-2.5">
+        {formatted.map((element, idx) => {
+          if (element.type === 'header') {
+            return (
+              <h3 key={idx} className="text-sm font-semibold text-white mb-1.5">
+                {element.content}
+              </h3>
+            );
+          }
+          
+          if (element.type === 'subheader') {
+            return (
+              <h4 key={idx} className="text-sm font-medium text-slate-300 mt-2.5 mb-1.5">
+                {element.content}
+              </h4>
+            );
+          }
+          
+          if (element.type === 'table') {
+            return (
+              <div key={idx} className="mt-3 mb-3 overflow-x-auto rounded-xl border border-slate-600/50">
+                <table className="min-w-full border-collapse text-sm">
+                  <thead>
+                    <tr className="bg-slate-600/30">
+                      {element.headers.map((header, headerIdx) => (
+                        <th 
+                          key={headerIdx} 
+                          className="px-4 py-3 text-left font-semibold text-slate-200 border-b border-slate-600/50"
+                        >
+                          {header}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {element.rows.map((row, rowIdx) => (
+                      <tr 
+                        key={rowIdx} 
+                        className={rowIdx % 2 === 0 ? 'bg-slate-700/20' : 'bg-slate-700/10'}
+                      >
+                        {row.map((cell, cellIdx) => {
+                          // Check if this is a priority cell
+                          const isPriority = cellIdx === 1 && (cell === 'HIGH' || cell === 'MODERATE' || cell === 'LOW');
+                          return (
+                            <td 
+                              key={cellIdx} 
+                              className={`px-4 py-3 text-slate-300 border-b border-slate-700/30 ${
+                                isPriority ? '' : ''
+                              }`}
+                            >
+                              {isPriority ? (
+                                <span className={`px-2.5 py-1 rounded-lg text-xs font-semibold ${
+                                  cell === 'HIGH' ? 'bg-red-500/20 text-red-300 border border-red-500/30' :
+                                  cell === 'MODERATE' ? 'bg-yellow-500/20 text-yellow-300 border border-yellow-500/30' :
+                                  cell === 'LOW' ? 'bg-green-500/20 text-green-300 border border-green-500/30' :
+                                  'bg-slate-600/30 text-slate-300 border border-slate-600/30'
+                                }`}>
+                                  {cell}
+                                </span>
+                              ) : (
+                                cell
+                              )}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            );
+          }
+          
+          if (element.type === 'section') {
+            return (
+              <div key={idx} className="space-y-1.5">
+                {element.content.map((item, itemIdx) => {
+                  if (item.type === 'bullet') {
+                    // Parse priority badges and format
+                    const parts = item.content.split('—');
+                    const mainPart = parts[0]?.trim() || '';
+                    const details = parts[1]?.trim() || '';
+                    
+                    // Extract priority badge [HIGH], [MODERATE], etc.
+                    const priorityMatch = mainPart.match(/\[([^\]]+)\]/);
+                    const priority = priorityMatch ? priorityMatch[1] : null;
+                    const bloodType = mainPart.replace(/\[([^\]]+)\]/, '').trim();
+                    
+                    // Split details by pipe for better formatting
+                    const detailParts = details ? details.split('|').map(d => d.trim()) : [];
+                    
+                    return (
+                      <div key={itemIdx} className="flex items-start gap-2">
+                        <span className="text-blue-400 mt-0.5 text-sm">•</span>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-medium text-white text-sm">{bloodType}</span>
+                            {priority && (
+                              <span className={`px-2.5 py-1 rounded-lg text-xs font-semibold ${
+                                priority === 'HIGH' ? 'bg-red-500/20 text-red-300 border border-red-500/30' :
+                                priority === 'MODERATE' ? 'bg-yellow-500/20 text-yellow-300 border border-yellow-500/30' :
+                                priority === 'LOW' ? 'bg-green-500/20 text-green-300 border border-green-500/30' :
+                                'bg-slate-600/30 text-slate-300 border border-slate-600/30'
+                              }`}>
+                                {priority}
+                              </span>
+                            )}
+                          </div>
+                          {detailParts.length > 0 && (
+                            <div className="text-slate-400 text-xs mt-1 ml-0">
+                              <span className="text-slate-500">—</span> {detailParts.join(' • ')}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  }
+                  
+                  return (
+                    <p key={itemIdx} className="text-slate-300 text-sm">
+                      {item.content}
+                    </p>
+                  );
+                })}
+              </div>
+            );
+          }
+          
+          return null;
+        })}
+      </div>
+    );
+  };
+
   // Process a single response based on its type
   const processResponse = (data) => {
     console.log('Processing response:', data);
 
     const responseType = data.type || 'answer';
 
-    // Handle visualization type - only update visualization panel, don't add to chat
+    // If there's an embed URL in any response, update the visualization panel immediately
+    const embedUrlAny = data.embedUrl || data.embed_url;
+    if (embedUrlAny && onVisualizationData) {
+      console.log('Updating visualization panel with (any type):', embedUrlAny);
+      onVisualizationData({
+        embedUrl: embedUrlAny,
+        cardId: data.cardId || data.card_id,
+        cardName: data.cardName || data.card_name,
+        sqlQuery: data.sqlQuery || data.sql_query,
+        data: data.data,
+        timestamp: data.timestamp
+      });
+      // Do not return here; still allow chat message to be added if present
+    }
+
+    // Handle explicit visualization type - historically used to only update panel
     if (responseType === 'visualization') {
-      const embedUrl = data.embedUrl || data.embed_url;
-      if (embedUrl && onVisualizationData) {
-        console.log('Updating visualization panel with:', embedUrl);
-        onVisualizationData({
-          embedUrl: embedUrl,
-          cardId: data.cardId || data.card_id,
-          cardName: data.cardName || data.card_name,
-          sqlQuery: data.sqlQuery || data.sql_query,
-          data: data.data,
-          timestamp: data.timestamp
-        });
-      }
       return;
     }
 
@@ -87,7 +352,8 @@ export default function CustomChatInterface({ sessionId, onMessageSent, onVisual
         type: 'assistant',
         content: messageContent,
         timestamp: Date.now(),
-        responseType: responseType
+        responseType: responseType,
+        isFollowup: responseType === 'followup'
       };
 
       // Add actions if present (for followup type)
@@ -114,6 +380,30 @@ export default function CustomChatInterface({ sessionId, onMessageSent, onVisual
     return placeholderMessages.some(placeholder =>
       message.toLowerCase().includes(placeholder.toLowerCase())
     ) && !data.type && !data.actions && !data.embedUrl && !data.embed_url;
+  };
+
+  // Check if response is waiting for user input based on waitType field
+  const isWaitingForUserInput = (data) => {
+    // Check for explicit waitType field
+    if (data.waitType) {
+      // "interactive" means wait for user input
+      // "automatic" means continue automatically
+      return data.waitType === 'interactive';
+    }
+    
+    // Fallback to old behavior if waitType is not present
+    // If there are actions, it's definitely waiting for user input
+    if (data.actions && Array.isArray(data.actions) && data.actions.length > 0) {
+      return true;
+    }
+    
+    // If there's a message, chart, table, or embed - it's showing content and might be waiting for response
+    if (data.message || data.chart || data.table || data.embedUrl || data.embed_url) {
+      return true;
+    }
+    
+    // If it's just a placeholder or empty response, don't wait
+    return false;
   };
 
   // Continue workflow by calling resume URL with retry logic
@@ -206,9 +496,9 @@ export default function CustomChatInterface({ sessionId, onMessageSent, onVisual
                 if (nextResumeUrl) {
                   console.log('Found next resumeUrl:', nextResumeUrl);
 
-                  // If response has actions, store resumeUrl for button clicks
-                  if (data.actions && Array.isArray(data.actions) && data.actions.length > 0) {
-                    console.log('Storing resumeUrl for action buttons');
+                  // If response is waiting for user input (has actions or content), store resumeUrl
+                  if (isWaitingForUserInput(data)) {
+                    console.log('Storing resumeUrl - waiting for user input');
                     setCurrentResumeUrl(nextResumeUrl);
                   } else {
                     // Otherwise, recursively continue workflow
@@ -253,7 +543,7 @@ export default function CustomChatInterface({ sessionId, onMessageSent, onVisual
 
             const nextResumeUrl = data.resumeUrl || data.resume_url;
             if (nextResumeUrl) {
-              if (data.actions && Array.isArray(data.actions) && data.actions.length > 0) {
+              if (isWaitingForUserInput(data)) {
                 setCurrentResumeUrl(nextResumeUrl);
               } else {
                 isProcessingWorkflowRef.current = false;
@@ -296,7 +586,7 @@ export default function CustomChatInterface({ sessionId, onMessageSent, onVisual
 
           const nextResumeUrl = data.resumeUrl || data.resume_url;
           if (nextResumeUrl) {
-            if (data.actions && Array.isArray(data.actions) && data.actions.length > 0) {
+            if (isWaitingForUserInput(data)) {
               setCurrentResumeUrl(nextResumeUrl);
             } else {
               isProcessingWorkflowRef.current = false;
@@ -330,6 +620,9 @@ export default function CustomChatInterface({ sessionId, onMessageSent, onVisual
     setMessages(prev => [...prev, userMessage]);
     setInputValue('');
     setIsLoading(true);
+
+    // Check if there's a pending resumeUrl to respond to
+    const pendingResumeUrl = currentResumeUrl;
     setCurrentResumeUrl(null); // Clear any stored resume URL from previous interaction
 
     if (onMessageSent) {
@@ -339,7 +632,10 @@ export default function CustomChatInterface({ sessionId, onMessageSent, onVisual
     abortControllerRef.current = new AbortController();
 
     try {
-      const response = await apiService.sendMessage(messageText, sessionId, abortControllerRef.current.signal);
+      // If there's a pending resumeUrl, send the message there instead of the normal endpoint
+      const response = pendingResumeUrl 
+        ? await apiService.sendMessageToResumeUrl(pendingResumeUrl, messageText, sessionId, abortControllerRef.current.signal)
+        : await apiService.sendMessage(messageText, sessionId, abortControllerRef.current.signal);
 
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
@@ -349,6 +645,7 @@ export default function CustomChatInterface({ sessionId, onMessageSent, onVisual
       const decoder = new TextDecoder();
       let buffer = '';
       let firstResumeUrl = null;
+      let lastResponseData = null;
 
       console.log('Initial webhook response received');
 
@@ -379,6 +676,7 @@ export default function CustomChatInterface({ sessionId, onMessageSent, onVisual
                 const resumeUrl = data.resumeUrl || data.resume_url;
                 if (resumeUrl && !firstResumeUrl) {
                   firstResumeUrl = resumeUrl;
+                  lastResponseData = data;
                 }
               } catch (e) {
                 console.error('Error parsing initial response line:', e, 'Line:', line);
@@ -397,6 +695,7 @@ export default function CustomChatInterface({ sessionId, onMessageSent, onVisual
             const resumeUrl = data.resumeUrl || data.resume_url;
             if (resumeUrl && !firstResumeUrl) {
               firstResumeUrl = resumeUrl;
+              lastResponseData = data;
             }
           } catch (e) {
             console.error('Error parsing initial buffer:', e);
@@ -414,16 +713,24 @@ export default function CustomChatInterface({ sessionId, onMessageSent, onVisual
           const resumeUrl = data.resumeUrl || data.resume_url;
           if (resumeUrl) {
             firstResumeUrl = resumeUrl;
+            lastResponseData = data;
           }
         } catch (e) {
           console.error('Error parsing initial response:', e);
         }
       }
 
-      // If we got a resumeUrl, start the continuation workflow
-      if (firstResumeUrl) {
-        console.log('Starting continuation workflow with resumeUrl:', firstResumeUrl);
-        await continueWorkflow(firstResumeUrl);
+      // If we got a resumeUrl, check waitType to determine next action
+      if (firstResumeUrl && lastResponseData) {
+        console.log('Checking waitType for resumeUrl:', firstResumeUrl);
+        
+        if (isWaitingForUserInput(lastResponseData)) {
+          console.log('WaitType is interactive - storing resumeUrl for user action');
+          setCurrentResumeUrl(firstResumeUrl);
+        } else {
+          console.log('WaitType is automatic - continuing workflow automatically');
+          await continueWorkflow(firstResumeUrl);
+        }
       }
     } catch (error) {
       if (error.name === 'AbortError') {
@@ -470,14 +777,29 @@ export default function CustomChatInterface({ sessionId, onMessageSent, onVisual
       };
       setMessages(prev => [...prev, actionMessage]);
 
+      // Parse action data if it's in the value field as JSON string
+      let actionData = action;
+      if (action.value && typeof action.value === 'string') {
+        try {
+          actionData = JSON.parse(action.value);
+          console.log('Parsed action data from value:', actionData);
+        } catch (e) {
+          console.warn('Failed to parse action.value:', e);
+          // If parsing fails, use the original action object
+        }
+      }
+
       // Call the resume URL with the action payload
-      await continueWorkflow(currentResumeUrl, {
-        action: action.id || action.type,
+      const payload = {
+        action: actionData,
         sessionId: sessionId
-      });
+      };
+      console.log('Sending action payload to resume URL:', payload);
+      
+      await continueWorkflow(currentResumeUrl, payload);
 
       setIsLoading(false);
-      setCurrentResumeUrl(null); // Clear after use
+      // Don't clear currentResumeUrl here - continueWorkflow will set the next one if present
     } else if (action.type === 'button' && action.payload) {
       // Fallback to old behavior if no resume URL
       setInputValue(action.payload);
@@ -507,7 +829,8 @@ export default function CustomChatInterface({ sessionId, onMessageSent, onVisual
           content: msg.content,
           timestamp: msg.timestamp,
           actions: msg.actions,
-          isError: msg.isError
+          isError: msg.isError,
+          responseType: msg.responseType
         });
       } else {
         standaloneMessages.push({
@@ -515,45 +838,51 @@ export default function CustomChatInterface({ sessionId, onMessageSent, onVisual
           content: msg.content,
           timestamp: msg.timestamp,
           actions: msg.actions,
-          isError: msg.isError
+          isError: msg.isError,
+          responseType: msg.responseType
         });
       }
     }
   });
 
   return (
-    <div className="flex flex-col h-full bg-gradient-to-b from-gray-50 to-white">
+    <div className="flex flex-col h-full bg-transparent relative">
       {/* Messages Container */}
-      <div className="flex-1 overflow-y-auto px-6 py-6 space-y-6">
+      <div className="flex-1 overflow-y-auto px-8 py-8 space-y-8">
         {/* Standalone Assistant Messages (e.g., initial welcome) */}
         {standaloneMessages.map((msg) => (
-          <div key={msg.id} className="flex justify-start">
-            <div className="flex items-end gap-3 max-w-[75%]">
-              <div className="w-9 h-9 bg-gray-200 rounded-full flex items-center justify-center flex-shrink-0 shadow-md">
-                <Bot className="w-5 h-5 text-gray-700" />
+          <div key={msg.id} className="flex justify-start animate-slide-in">
+            <div className="flex items-start gap-4 max-w-[80%]">
+              <div className="relative">
+                <div className="w-11 h-11 bg-gradient-to-br from-purple-500 via-blue-500 to-blue-600 rounded-2xl flex items-center justify-center flex-shrink-0 shadow-lg shadow-blue-500/40 ring-2 ring-slate-700/50">
+                  <Bot className="w-6 h-6 text-white" />
+                </div>
+                <div className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 bg-green-500 rounded-full border-2 border-slate-800"></div>
               </div>
-              <div className="bg-white rounded-2xl rounded-bl-sm px-5 py-3 shadow-md border border-gray-200">
-                <p className="text-sm text-gray-800 leading-relaxed">{msg.content}</p>
-                <div className="flex items-center justify-between mt-3 pt-2 border-t border-gray-100">
-                  {msg.timestamp && (
-                    <div className="flex items-center gap-1">
-                      <Clock className="w-3 h-3 text-gray-400" />
-                      <p className="text-xs text-gray-500">
-                        {new Date(msg.timestamp).toLocaleString()}
-                      </p>
-                    </div>
-                  )}
-                  <button
-                    onClick={() => speakText(msg.content, msg.id)}
-                    className="p-1.5 hover:bg-gray-100 rounded-full transition-colors"
-                    title={speaking === msg.id ? "Stop speaking" : "Read aloud"}
-                  >
-                    {speaking === msg.id ? (
-                      <VolumeX className="w-4 h-4 text-blue-600" />
-                    ) : (
-                      <Volume2 className="w-4 h-4 text-gray-500 hover:text-blue-600 transition-colors" />
+              <div className="flex-1">
+                <div className="bg-gradient-to-br from-slate-700/60 to-slate-700/40 backdrop-blur-md rounded-3xl rounded-tl-md px-6 py-5 shadow-2xl border border-slate-600/50 hover:border-slate-500/50 transition-all duration-300">
+                  {renderFormattedMessage(msg.content)}
+                  <div className="flex items-center gap-3 mt-4 pt-4 border-t border-slate-600/40">
+                    {msg.timestamp && (
+                      <div className="flex items-center gap-2 flex-1">
+                        <Clock className="w-3.5 h-3.5 text-slate-400" />
+                        <p className="text-xs text-slate-400 font-medium">
+                          {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </p>
+                      </div>
                     )}
-                  </button>
+                    <button
+                      onClick={() => speakText(msg.content, msg.id)}
+                      className="p-2 hover:bg-slate-600/50 rounded-xl transition-all duration-200 group"
+                      title={speaking === msg.id ? "Stop speaking" : "Read aloud"}
+                    >
+                      {speaking === msg.id ? (
+                        <VolumeX className="w-4 h-4 text-blue-400" />
+                      ) : (
+                        <Volume2 className="w-4 h-4 text-slate-400 group-hover:text-blue-400 transition-colors" />
+                      )}
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -561,15 +890,20 @@ export default function CustomChatInterface({ sessionId, onMessageSent, onVisual
         ))}
 
         {groupedMessages.map((group, groupIdx) => (
-          <div key={groupIdx} className="space-y-4">
+          <div key={groupIdx} className="space-y-6 animate-slide-in">
             {/* User Message */}
             <div className="flex justify-end">
-              <div className="flex items-end gap-3 max-w-[75%]">
-                <div className="bg-blue-600 text-white rounded-2xl rounded-br-sm px-5 py-3 shadow-md">
-                  <p className="text-sm leading-relaxed">{group.question}</p>
+              <div className="flex items-start gap-4 max-w-[80%]">
+                <div className="flex-1">
+                  <div className="bg-gradient-to-br from-blue-600 via-blue-500 to-blue-600 text-white rounded-3xl rounded-tr-md px-6 py-5 shadow-2xl shadow-blue-500/30 hover:shadow-blue-500/40 transition-all duration-300">
+                    <p className="text-sm leading-relaxed font-medium">{group.question}</p>
+                    <p className="text-xs text-blue-100 mt-3 opacity-75">
+                      {new Date(group.questionTimestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </p>
+                  </div>
                 </div>
-                <div className="w-9 h-9 bg-blue-600 rounded-full flex items-center justify-center flex-shrink-0 shadow-md">
-                  <User className="w-5 h-5 text-white" />
+                <div className="w-11 h-11 bg-gradient-to-br from-blue-600 to-blue-500 rounded-2xl flex items-center justify-center flex-shrink-0 shadow-lg shadow-blue-500/40 ring-2 ring-slate-700/50">
+                  <User className="w-6 h-6 text-white" />
                 </div>
               </div>
                 </div>
@@ -577,49 +911,54 @@ export default function CustomChatInterface({ sessionId, onMessageSent, onVisual
             {/* Bot Messages */}
             {group.answers.map((answer, answerIdx) => (
               <div key={answer.id} className="flex justify-start">
-                <div className="flex items-end gap-3 max-w-[75%]">
-                  <div className="w-9 h-9 bg-gray-200 rounded-full flex items-center justify-center flex-shrink-0 shadow-md">
-                    <Bot className="w-5 h-5 text-gray-700" />
-                  </div>
-                  <div className="bg-white rounded-2xl rounded-bl-sm px-5 py-3 shadow-md border border-gray-200">
-                    <p className="text-sm text-gray-800 leading-relaxed">{answer.content}</p>
-
-                {/* Action Buttons */}
-                    {answer.actions && Array.isArray(answer.actions) && answer.actions.length > 0 && (
-                      <div className="flex flex-wrap gap-2 mt-3">
-                        {answer.actions.map((action, actionIdx) => (
-                      <button
-                            key={actionIdx}
-                        onClick={() => handleActionClick(action)}
-                            className="px-3 py-1.5 text-xs bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-                      >
-                        {action.label || action.text || 'Action'}
-                      </button>
-                    ))}
-                  </div>
-                )}
-                    
-                    <div className="flex items-center justify-between mt-3 pt-2 border-t border-gray-100">
-                      {answer.timestamp && (
-                        <div className="flex items-center gap-1">
-                          <Clock className="w-3 h-3 text-gray-400" />
-                          <p className="text-xs text-gray-500">
-                            {new Date(answer.timestamp).toLocaleString()}
-                          </p>
-                        </div>
-                      )}
-                      <button
-                        onClick={() => speakText(answer.content, answer.id)}
-                        className="p-1.5 hover:bg-gray-100 rounded-full transition-colors"
-                        title={speaking === answer.id ? "Stop speaking" : "Read aloud"}
-                      >
-                        {speaking === answer.id ? (
-                          <VolumeX className="w-4 h-4 text-blue-600" />
-                        ) : (
-                          <Volume2 className="w-4 h-4 text-gray-500 hover:text-blue-600 transition-colors" />
-                        )}
-                      </button>
+                <div className="flex items-start gap-4 max-w-[80%]">
+                  <div className="relative">
+                    <div className="w-11 h-11 bg-gradient-to-br from-purple-500 via-blue-500 to-blue-600 rounded-2xl flex items-center justify-center flex-shrink-0 shadow-lg shadow-blue-500/40 ring-2 ring-slate-700/50">
+                      <Bot className="w-6 h-6 text-white" />
                     </div>
+                    <div className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 bg-green-500 rounded-full border-2 border-slate-800"></div>
+                  </div>
+                  <div className="flex-1">
+                    <div className="bg-gradient-to-br from-slate-700/60 to-slate-700/40 backdrop-blur-md rounded-3xl rounded-tl-md px-6 py-5 shadow-2xl border border-slate-600/50 hover:border-slate-500/50 transition-all duration-300">
+                      {renderFormattedMessage(answer.content)}
+
+                  {/* Action Buttons */}
+                      {answer.actions && Array.isArray(answer.actions) && answer.actions.length > 0 && (
+                        <div className="flex flex-wrap gap-2.5 mt-5">
+                          {answer.actions.map((action, actionIdx) => (
+                        <button
+                              key={actionIdx}
+                          onClick={() => handleActionClick(action)}
+                              className="px-5 py-2.5 text-sm font-semibold bg-gradient-to-r from-blue-600 to-blue-500 text-white rounded-xl hover:from-blue-500 hover:to-blue-400 transition-all duration-200 shadow-lg shadow-blue-500/40 hover:shadow-blue-500/60 active:scale-95"
+                        >
+                          {action.label || action.text || 'Action'}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                      
+                      <div className="flex items-center gap-3 mt-4 pt-4 border-t border-slate-600/40">
+                        {answer.timestamp && (
+                          <div className="flex items-center gap-2 flex-1">
+                            <Clock className="w-3.5 h-3.5 text-slate-400" />
+                            <p className="text-xs text-slate-400 font-medium">
+                              {new Date(answer.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            </p>
+                          </div>
+                        )}
+                        <button
+                          onClick={() => speakText(answer.content, answer.id)}
+                          className="p-2 hover:bg-slate-600/50 rounded-xl transition-all duration-200 group"
+                          title={speaking === answer.id ? "Stop speaking" : "Read aloud"}
+                        >
+                          {speaking === answer.id ? (
+                            <VolumeX className="w-4 h-4 text-blue-400" />
+                          ) : (
+                            <Volume2 className="w-4 h-4 text-slate-400 group-hover:text-blue-400 transition-colors" />
+                          )}
+                        </button>
+                      </div>
+                </div>
               </div>
             </div>
           </div>
@@ -628,15 +967,18 @@ export default function CustomChatInterface({ sessionId, onMessageSent, onVisual
             {/* Typing Indicator */}
             {isLoading && groupIdx === groupedMessages.length - 1 && group.answers.length === 0 && (
               <div className="flex justify-start">
-                <div className="flex items-end gap-3 max-w-[75%]">
-                  <div className="w-9 h-9 bg-gray-200 rounded-full flex items-center justify-center flex-shrink-0 shadow-md">
-                    <Bot className="w-5 h-5 text-gray-700" />
+                <div className="flex items-start gap-4 max-w-[80%]">
+                  <div className="relative">
+                    <div className="w-11 h-11 bg-gradient-to-br from-purple-500 via-blue-500 to-blue-600 rounded-2xl flex items-center justify-center flex-shrink-0 shadow-lg shadow-blue-500/40 ring-2 ring-slate-700/50 animate-pulse">
+                      <Bot className="w-6 h-6 text-white" />
+                    </div>
+                    <div className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 bg-yellow-400 rounded-full border-2 border-slate-800 animate-pulse"></div>
                   </div>
-                  <div className="bg-white rounded-2xl rounded-bl-sm px-5 py-3 shadow-md border border-gray-200">
-                    <div className="flex items-center gap-1">
-                      <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
-                      <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
-                      <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
+                  <div className="bg-gradient-to-br from-slate-700/60 to-slate-700/40 backdrop-blur-md rounded-3xl rounded-tl-md px-6 py-5 shadow-2xl border border-slate-600/50">
+                    <div className="flex items-center gap-2">
+                      <div className="w-3 h-3 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
+                      <div className="w-3 h-3 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
+                      <div className="w-3 h-3 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
                     </div>
                   </div>
                 </div>
@@ -649,19 +991,19 @@ export default function CustomChatInterface({ sessionId, onMessageSent, onVisual
       </div>
 
       {/* Input Area */}
-      <div className="border-t border-gray-200 bg-white px-6 py-4">
-        <div className="flex items-end gap-3">
-          <div className="flex-1 relative">
+      <div className="border-t border-slate-700/50 bg-slate-800/40 backdrop-blur-md px-8 py-6">
+        <div className="max-w-4xl mx-auto">
+          <div className="relative">
             <textarea
               ref={inputRef}
               value={inputValue}
               onChange={(e) => setInputValue(e.target.value)}
               onKeyDown={handleKeyPress}
-              placeholder="Type your question..."
+              placeholder="Ask me anything about your data..."
               rows={1}
-              className="w-full px-4 py-3 pr-12 rounded-2xl border border-gray-300 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+              className="w-full px-6 py-4 pr-16 rounded-2xl bg-slate-700/60 border-2 border-slate-600/50 text-white placeholder-slate-400 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50 text-sm transition-all duration-200 shadow-xl"
               style={{
-                minHeight: '50px',
+                minHeight: '60px',
                 maxHeight: '120px'
               }}
               disabled={isLoading}
@@ -669,12 +1011,15 @@ export default function CustomChatInterface({ sessionId, onMessageSent, onVisual
             <button
               onClick={handleSendMessage}
               disabled={!inputValue.trim() || isLoading}
-              className="absolute right-2 bottom-2 p-2 rounded-full transition-all disabled:opacity-50 disabled:cursor-not-allowed bg-blue-600 text-white hover:bg-blue-700 disabled:hover:bg-blue-600"
+              className="absolute right-3 bottom-3 p-3.5 rounded-xl transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed bg-gradient-to-r from-blue-600 to-blue-500 text-white hover:from-blue-500 hover:to-blue-400 disabled:hover:from-blue-600 disabled:hover:to-blue-500 shadow-lg shadow-blue-500/40 hover:shadow-blue-500/60 active:scale-95"
               title="Send message"
             >
-              <Send className="w-4 h-4" />
+              <Send className="w-5 h-5" />
             </button>
           </div>
+          <p className="text-xs text-slate-500 mt-3 text-center">
+            Press <kbd className="px-2 py-0.5 rounded bg-slate-700/50 border border-slate-600/50 text-slate-400 font-mono">Enter</kbd> to send, <kbd className="px-2 py-0.5 rounded bg-slate-700/50 border border-slate-600/50 text-slate-400 font-mono">Shift + Enter</kbd> for new line
+          </p>
         </div>
       </div>
     </div>

@@ -42,5 +42,26 @@ export const apiService = {
     }
     
     return response;
+  },
+
+  async sendMessageToResumeUrl(resumeUrl, message, sessionId, signal) {
+    const response = await fetch(resumeUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      },
+      body: JSON.stringify({
+        message: message,
+        sessionId: sessionId
+      }),
+      signal: signal
+    });
+    
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    
+    return response;
   }
 };

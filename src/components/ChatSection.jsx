@@ -28,15 +28,18 @@ export default function ChatSection({ selectedHistoryItem, onClearHistory, chatK
   };
 
   return (
-    <div className="h-full flex flex-col bg-white">
+    <div className="h-full flex flex-col bg-transparent">
       {/* Header */}
-      <div className="px-6 py-4 border-b border-gray-200 bg-gradient-to-r from-gray-50 to-white">
+      <div className="px-6 py-5 border-b border-slate-700/50 bg-slate-800/20 backdrop-blur-sm">
         <div className="flex items-center justify-between">
-          <h2 className="text-xl font-bold text-gray-900">Chat</h2>
+          <div>
+            <h2 className="text-xl font-bold text-white">Chat Assistant</h2>
+            <p className="text-sm text-slate-400 mt-0.5">Ask anything about your data</p>
+          </div>
           {showHistory && (
             <button
               onClick={handleBackToLiveChat}
-              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 active:bg-blue-800 transition-all duration-200 shadow-sm hover:shadow-md"
+              className="flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-blue-600 to-blue-500 text-white text-sm font-semibold rounded-xl hover:from-blue-500 hover:to-blue-400 active:scale-95 transition-all duration-200 shadow-lg shadow-blue-500/30 hover:shadow-blue-500/50"
             >
               <ArrowLeft className="w-4 h-4" />
               Back to Live Chat
