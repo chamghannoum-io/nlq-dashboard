@@ -1,8 +1,40 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { User, Bot, Clock, History, Volume2, VolumeX } from 'lucide-react';
+import { fetchSessionById } from '../services/supabaseService';
 
-export default function ChatDisplay({ messages, isHistorical }) {
+export default function ChatDisplay({ messages, isHistorical, selectedSession }) {
   const [speaking, setSpeaking] = useState(null);
+  const [sessionChats, setSessionChats] = useState([]);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    // If a session is selected and we're in historical mode, fetch all chats for that session
+    if (isHistorical && selectedSession?.session_id) {
+      loadSessionChats(selectedSession.session_id);
+    } else if (messages && messages.length > 0) {
+      // Use provided messages
+      const formattedMessages = messages.map(msg => ({
+        question: msg.question,
+        answer: msg.answer,
+        timestamp: msg.timestamp
+      }));
+      setSessionChats(formattedMessages);
+    }
+  }, [isHistorical, selectedSession, messages]);
+
+  const loadSessionChats = async (sessionId) => {
+    setLoading(true);
+    try {
+      const sessionData = await fetchSessionById(sessionId);
+      if (sessionData && sessionData.chats) {
+        setSessionChats(sessionData.chats);
+      }
+    } catch (error) {
+      console.error('Error loading session chats:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const speakText = (text, messageIndex) => {
     window.speechSynthesis.cancel();
@@ -35,7 +67,21 @@ export default function ChatDisplay({ messages, isHistorical }) {
     window.speechSynthesis.speak(utterance);
   };
 
-  if (!messages || messages.length === 0) {
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-full bg-transparent">
+        <div className="text-center">
+          <div className="relative">
+            <div className="animate-spin rounded-full h-16 w-16 border-4 border-slate-700"></div>
+            <div className="animate-spin rounded-full h-16 w-16 border-4 border-blue-500 border-t-transparent absolute top-0 left-0"></div>
+          </div>
+          <p className="mt-4 text-slate-300 font-semibold">Loading conversation...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!sessionChats || sessionChats.length === 0) {
     return (
       <div className="flex items-center justify-center h-full bg-transparent">
         <div className="text-center">
@@ -55,14 +101,16 @@ export default function ChatDisplay({ messages, isHistorical }) {
         <div className="bg-blue-500/20 border-b border-blue-500/30 px-6 py-3 backdrop-blur-sm">
           <div className="flex items-center gap-2 text-blue-300">
             <History className="w-4 h-4" />
-            <p className="text-sm font-medium">Viewing historical conversation</p>
+            <p className="text-sm font-medium">
+              Viewing historical conversation • {sessionChats.length} {sessionChats.length === 1 ? 'message' : 'messages'}
+            </p>
           </div>
         </div>
       )}
 
       {/* Messages */}
       <div className="flex-1 overflow-y-auto px-6 py-6 space-y-6">
-        {messages.map((msg, idx) => (
+        {sessionChats.map((msg, idx) => (
           <div key={idx} className="space-y-4">
             {/* User Message */}
             {msg.question && (

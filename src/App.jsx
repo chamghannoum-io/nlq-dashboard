@@ -11,7 +11,7 @@ const App = () => {
   const [chatKey, setChatKey] = React.useState(Date.now());
   const [visualizationData, setVisualizationData] = React.useState(null);
 
-  const { history } = useChat();
+  const { history, loading } = useChat();
 
   const {
     sidebarWidth,
@@ -49,6 +49,7 @@ const App = () => {
           sidebarWidth={sidebarWidth}
           onNewChat={handleNewChat}
           onCollapse={() => setIsSidebarOpen(false)}
+          loading={loading}
         />
       )}
 

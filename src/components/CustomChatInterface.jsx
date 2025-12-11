@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Send, Bot, User, Clock, Volume2, VolumeX } from 'lucide-react';
+import { Send, Bot, User, Clock, Volume2, VolumeX, Sparkles, ChevronRight } from 'lucide-react';
 import { apiService } from '../services/apiService';
+import { fetchRandomQuestions, searchQuestions } from '../services/supabaseService';
 
 export default function CustomChatInterface({ sessionId, onMessageSent, onVisualizationData }) {
   const [messages, setMessages] = useState([
@@ -15,10 +16,14 @@ export default function CustomChatInterface({ sessionId, onMessageSent, onVisual
   const [isLoading, setIsLoading] = useState(false);
   const [speaking, setSpeaking] = useState(null);
   const [currentResumeUrl, setCurrentResumeUrl] = useState(null);
+  const [suggestedQuestions, setSuggestedQuestions] = useState([]);
+  const [searchResults, setSearchResults] = useState([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
   const abortControllerRef = useRef(null);
   const isProcessingWorkflowRef = useRef(false);
+  const suggestionsRef = useRef(null);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -26,6 +31,48 @@ export default function CustomChatInterface({ sessionId, onMessageSent, onVisual
 
   useEffect(() => {
     inputRef.current?.focus();
+    // Load random suggested questions on mount
+    loadSuggestedQuestions();
+  }, []);
+
+  // Load random suggested questions
+  const loadSuggestedQuestions = async () => {
+    try {
+      console.log('Loading suggested questions...');
+      const questions = await fetchRandomQuestions(3);
+      console.log('Suggested questions loaded:', questions);
+      setSuggestedQuestions(questions);
+    } catch (error) {
+      console.error('Error loading suggested questions:', error);
+    }
+  };
+
+  // Search questions as user types
+  useEffect(() => {
+    const searchTimeout = setTimeout(async () => {
+      if (inputValue.trim().length >= 3) {
+        const results = await searchQuestions(inputValue.trim(), 8);
+        setSearchResults(results);
+        setShowSuggestions(results.length > 0);
+      } else {
+        setSearchResults([]);
+        setShowSuggestions(false);
+      }
+    }, 300); // Debounce search
+
+    return () => clearTimeout(searchTimeout);
+  }, [inputValue]);
+
+  // Close suggestions when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (suggestionsRef.current && !suggestionsRef.current.contains(event.target)) {
+        setShowSuggestions(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
   const speakText = (text, messageId) => {
@@ -605,8 +652,8 @@ export default function CustomChatInterface({ sessionId, onMessageSent, onVisual
     }
   };
 
-  const handleSendMessage = async () => {
-    const messageText = inputValue.trim();
+  const handleSendMessage = async (questionText = null) => {
+    const messageText = (questionText || inputValue).trim();
     if (!messageText || isLoading) return;
 
     // Add user message
@@ -619,6 +666,7 @@ export default function CustomChatInterface({ sessionId, onMessageSent, onVisual
 
     setMessages(prev => [...prev, userMessage]);
     setInputValue('');
+    setShowSuggestions(false);
     setIsLoading(true);
 
     // Check if there's a pending resumeUrl to respond to
@@ -757,7 +805,15 @@ export default function CustomChatInterface({ sessionId, onMessageSent, onVisual
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSendMessage();
+    } else if (e.key === 'Escape') {
+      setShowSuggestions(false);
     }
+  };
+
+  const handleSuggestionClick = (question) => {
+    setInputValue(question);
+    setShowSuggestions(false);
+    handleSendMessage(question);
   };
 
   const handleActionClick = async (action) => {
@@ -849,6 +905,32 @@ export default function CustomChatInterface({ sessionId, onMessageSent, onVisual
     <div className="flex flex-col h-full bg-transparent relative">
       {/* Messages Container */}
       <div className="flex-1 overflow-y-auto px-8 py-8 space-y-8">
+        
+        {/* Suggested Questions - Show when chat is empty or only has welcome message */}
+        {groupedMessages.length === 0 && standaloneMessages.length <= 1 && suggestedQuestions.length > 0 && (
+          <div className="max-w-3xl mx-auto mt-8 mb-6">
+            <div className="flex items-center gap-2 mb-4">
+              <Sparkles className="w-5 h-5 text-blue-400" />
+              <h3 className="text-sm font-semibold text-slate-300">Try asking questions like:</h3>
+            </div>
+            <div className="space-y-3">
+              {suggestedQuestions.map((item, idx) => (
+                <button
+                  key={idx}
+                  onClick={() => handleSuggestionClick(item.question)}
+                  className="w-full text-left p-4 bg-slate-700/40 hover:bg-slate-700/60 border border-slate-600/50 hover:border-blue-500/50 rounded-xl transition-all duration-200 group"
+                >
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm text-slate-200 group-hover:text-white transition-colors flex-1 pr-2">
+                      {item.question}
+                    </p>
+                    <ChevronRight className="w-4 h-4 text-slate-500 group-hover:text-blue-400 transition-colors flex-shrink-0" />
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
         {/* Standalone Assistant Messages (e.g., initial welcome) */}
         {standaloneMessages.map((msg) => (
           <div key={msg.id} className="flex justify-start animate-slide-in">
@@ -993,12 +1075,17 @@ export default function CustomChatInterface({ sessionId, onMessageSent, onVisual
       {/* Input Area */}
       <div className="border-t border-slate-700/50 bg-slate-800/40 backdrop-blur-md px-8 py-6">
         <div className="max-w-4xl mx-auto">
-          <div className="relative">
+          <div className="relative" ref={suggestionsRef}>
             <textarea
               ref={inputRef}
               value={inputValue}
               onChange={(e) => setInputValue(e.target.value)}
               onKeyDown={handleKeyPress}
+              onFocus={() => {
+                if (searchResults.length > 0) {
+                  setShowSuggestions(true);
+                }
+              }}
               placeholder="Ask me anything about your data..."
               rows={1}
               className="w-full px-6 py-4 pr-16 rounded-2xl bg-slate-700/60 border-2 border-slate-600/50 text-white placeholder-slate-400 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50 text-sm transition-all duration-200 shadow-xl"
@@ -1008,8 +1095,32 @@ export default function CustomChatInterface({ sessionId, onMessageSent, onVisual
               }}
               disabled={isLoading}
             />
+            
+            {/* Autocomplete Dropdown */}
+            {showSuggestions && searchResults.length > 0 && (
+              <div className="absolute bottom-full left-0 right-0 mb-2 bg-slate-800/95 backdrop-blur-xl border border-slate-600/50 rounded-2xl shadow-2xl overflow-hidden max-h-80 overflow-y-auto">
+                <div className="p-2">
+                  <div className="text-xs font-semibold text-slate-400 px-3 py-2 flex items-center gap-2">
+                    <Sparkles className="w-3.5 h-3.5" />
+                    Suggested questions
+                  </div>
+                  {searchResults.map((result, idx) => (
+                    <button
+                      key={idx}
+                      onClick={() => handleSuggestionClick(result.question)}
+                      className="w-full text-left px-4 py-3 hover:bg-slate-700/60 rounded-xl transition-all duration-150 group"
+                    >
+                      <p className="text-sm text-slate-200 group-hover:text-white transition-colors">
+                        {result.question}
+                      </p>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+            
             <button
-              onClick={handleSendMessage}
+              onClick={() => handleSendMessage()}
               disabled={!inputValue.trim() || isLoading}
               className="absolute right-3 bottom-3 p-3.5 rounded-xl transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed bg-gradient-to-r from-blue-600 to-blue-500 text-white hover:from-blue-500 hover:to-blue-400 disabled:hover:from-blue-600 disabled:hover:to-blue-500 shadow-lg shadow-blue-500/40 hover:shadow-blue-500/60 active:scale-95"
               title="Send message"
@@ -1018,7 +1129,7 @@ export default function CustomChatInterface({ sessionId, onMessageSent, onVisual
             </button>
           </div>
           <p className="text-xs text-slate-500 mt-3 text-center">
-            Press <kbd className="px-2 py-0.5 rounded bg-slate-700/50 border border-slate-600/50 text-slate-400 font-mono">Enter</kbd> to send, <kbd className="px-2 py-0.5 rounded bg-slate-700/50 border border-slate-600/50 text-slate-400 font-mono">Shift + Enter</kbd> for new line
+            Press <kbd className="px-2 py-0.5 rounded bg-slate-700/50 border border-slate-600/50 text-slate-400 font-mono">Enter</kbd> to send, <kbd className="px-2 py-0.5 rounded bg-slate-700/50 border border-slate-600/50 text-slate-400 font-mono">Esc</kbd> to close suggestions
           </p>
         </div>
       </div>

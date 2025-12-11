@@ -54,6 +54,7 @@ export default function ChatSection({ selectedHistoryItem, onClearHistory, chatK
           <ChatDisplay 
             messages={[selectedHistoryItem]} 
             isHistorical={true}
+            selectedSession={selectedHistoryItem}
           />
         ) : (
           <CustomChatInterface 

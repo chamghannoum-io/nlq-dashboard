@@ -1,29 +1,44 @@
 import { useState, useEffect } from 'react';
-import { apiService } from '../services/apiService.js';
+import { fetchSessionHistory } from '../services/supabaseService.js';
 
 export const useChat = () => {
   const [history, setHistory] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
   useEffect(() => {
-    loadHistory();
+    loadHistory(true); // Initial load with loading state
     
-    const interval = setInterval(loadHistory, 5000);
+    // Refresh history every 10 seconds (silently, without loading state)
+    const interval = setInterval(() => loadHistory(false), 10000);
     return () => clearInterval(interval);
   }, []);
 
-  const loadHistory = async () => {
+  const loadHistory = async (showLoading = true) => {
     try {
-      const historyData = await apiService.loadHistory();
-      if (Array.isArray(historyData) && historyData.length > 0) {
+      if (showLoading) {
+        setLoading(true);
+      }
+      setError(null);
+      const historyData = await fetchSessionHistory(50);
+      
+      if (Array.isArray(historyData)) {
         setHistory(historyData);
       }
-    } catch (error) {
-      console.error('Failed to load history:', error);
+    } catch (err) {
+      console.error('Failed to load history from Supabase:', err);
+      setError(err.message);
+    } finally {
+      if (showLoading) {
+        setLoading(false);
+      }
     }
   };
 
   return {
     history,
+    loading,
+    error,
     loadHistory
   };
 };

@@ -1,5 +1,5 @@
 import React from 'react';
-import { MessageSquare, Clock, BarChart3, Plus } from 'lucide-react';
+import { MessageSquare, Clock, BarChart3, Plus, Loader2 } from 'lucide-react';
 
 const Sidebar = ({ 
   history, 
@@ -7,7 +7,8 @@ const Sidebar = ({
   onHistoryClick,
   sidebarWidth,
   onNewChat,
-  onCollapse
+  onCollapse,
+  loading = false
 }) => {
   return (
     <div 
@@ -63,7 +64,15 @@ const Sidebar = ({
           </h2>
         </div>
         
-        {history.length === 0 ? (
+        {loading ? (
+          <div className="text-center mt-20 px-4">
+            <div className="w-24 h-24 mx-auto mb-5 bg-gradient-to-br from-slate-700/40 to-slate-700/20 rounded-3xl flex items-center justify-center border border-slate-700/50 shadow-xl">
+              <Loader2 className="w-12 h-12 text-slate-400 animate-spin" />
+            </div>
+            <p className="text-sm font-semibold text-slate-400">Loading conversations...</p>
+            <p className="text-xs text-slate-500 mt-2">Fetching from database</p>
+          </div>
+        ) : history.length === 0 ? (
           <div className="text-center mt-20 px-4">
             <div className="w-24 h-24 mx-auto mb-5 bg-gradient-to-br from-slate-700/40 to-slate-700/20 rounded-3xl flex items-center justify-center border border-slate-700/50 shadow-xl">
               <MessageSquare className="w-12 h-12 text-slate-500" />
@@ -74,7 +83,9 @@ const Sidebar = ({
         ) : (
           <div className="px-3 space-y-2.5 py-3">
             {history.map((item, idx) => {
-              const isSelected = selectedHistoryItem?.timestamp === item.timestamp;
+              const isSelected = selectedHistoryItem?.session_id 
+                ? selectedHistoryItem.session_id === item.session_id 
+                : selectedHistoryItem?.timestamp === item.timestamp;
               
               return (
                 <div
