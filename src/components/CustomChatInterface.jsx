@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Send, Bot, User, Clock, Volume2, VolumeX, Sparkles, ChevronRight } from 'lucide-react';
+import { Send, Bot, User, Clock, Volume2, VolumeX, Sparkles, ChevronRight, Mic, MicOff, X, Radio } from 'lucide-react';
 import { apiService } from '../services/apiService';
 import { fetchRandomQuestions, searchQuestions } from '../services/supabaseService';
+import { useSpeechRecognition } from '../hooks/useSpeechRecognition';
 
 export default function CustomChatInterface({ sessionId, onMessageSent, onVisualizationData }) {
   const [messages, setMessages] = useState([
@@ -19,11 +20,51 @@ export default function CustomChatInterface({ sessionId, onMessageSent, onVisual
   const [suggestedQuestions, setSuggestedQuestions] = useState([]);
   const [searchResults, setSearchResults] = useState([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
+  const [voiceMode, setVoiceMode] = useState(false);
+  const [voiceState, setVoiceState] = useState('idle'); // 'idle', 'listening', 'processing', 'speaking'
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
   const abortControllerRef = useRef(null);
   const isProcessingWorkflowRef = useRef(false);
   const suggestionsRef = useRef(null);
+  const voiceModeTTSRef = useRef(null);
+  const voiceModeAutoRestartRef = useRef(false);
+
+  // Speech recognition hook
+  const {
+    isListening,
+    isSupported: isSpeechSupported,
+    transcript,
+    interimTranscript,
+    error: speechError,
+    startListening,
+    stopListening,
+    abortListening
+  } = useSpeechRecognition({
+    onTranscript: (finalTranscript) => {
+      if (voiceMode) {
+        // In voice mode, auto-send immediately without showing text
+        setVoiceState('processing');
+        handleSendMessageVoiceMode(finalTranscript);
+      } else {
+        // Normal mode: auto-fill input
+        setInputValue(finalTranscript);
+      }
+    },
+    onError: (error) => {
+      console.error('Speech recognition error:', error);
+      if (voiceMode) {
+        setVoiceState('idle');
+        // Auto-restart listening after error in voice mode
+        setTimeout(() => {
+          if (voiceMode && !isLoading && !speaking) {
+            startListening();
+            setVoiceState('listening');
+          }
+        }, 1000);
+      }
+    }
+  });
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -75,11 +116,84 @@ export default function CustomChatInterface({ sessionId, onMessageSent, onVisual
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  // Stop TTS when starting speech recognition
+  useEffect(() => {
+    if (isListening && speaking) {
+      window.speechSynthesis.cancel();
+      setSpeaking(null);
+      if (voiceMode) {
+        voiceModeTTSRef.current = null;
+      }
+    }
+  }, [isListening, speaking, voiceMode]);
+
+  // Handle voice mode state changes
+  useEffect(() => {
+    if (voiceMode) {
+      // When entering voice mode, start listening
+      if (isSpeechSupported && !isListening && !isLoading && !speaking) {
+        startListening();
+        setVoiceState('listening');
+      }
+    } else {
+      // When exiting voice mode, stop everything
+      if (isListening) {
+        stopListening();
+      }
+      window.speechSynthesis.cancel();
+      setSpeaking(null);
+      setVoiceState('idle');
+      voiceModeTTSRef.current = null;
+      voiceModeAutoRestartRef.current = false;
+    }
+  }, [voiceMode, isSpeechSupported]);
+
+  // Auto-restart listening after TTS completes in voice mode
+  useEffect(() => {
+    if (voiceMode && !speaking && voiceModeAutoRestartRef.current && !isLoading) {
+      // TTS just finished, restart listening
+      voiceModeAutoRestartRef.current = false;
+      setTimeout(() => {
+        if (voiceMode && !isListening && !isLoading) {
+          startListening();
+          setVoiceState('listening');
+        }
+      }, 500);
+    }
+  }, [speaking, voiceMode, isListening, isLoading]);
+
+  // Update input value with transcripts (prioritize final over interim)
+  useEffect(() => {
+    if (isListening) {
+      // Show interim transcript while listening
+      if (interimTranscript) {
+        setInputValue(interimTranscript);
+      } else if (transcript) {
+        // If we have a final transcript but still listening, show it
+        setInputValue(transcript);
+      }
+    } else if (transcript) {
+      // When not listening, always use final transcript
+      setInputValue(transcript);
+      // Focus input after setting final transcript
+      setTimeout(() => inputRef.current?.focus(), 100);
+    }
+  }, [transcript, interimTranscript, isListening]);
+
   const speakText = (text, messageId) => {
+    // Stop any ongoing speech recognition when starting TTS
+    if (isListening) {
+      abortListening();
+    }
+
     window.speechSynthesis.cancel();
 
     if (speaking === messageId) {
       setSpeaking(null);
+      if (voiceMode) {
+        voiceModeTTSRef.current = null;
+        setVoiceState('idle');
+      }
       return;
     }
 
@@ -95,9 +209,30 @@ export default function CustomChatInterface({ sessionId, onMessageSent, onVisual
       utterance.voice = englishVoice;
     }
 
-    utterance.onstart = () => setSpeaking(messageId);
-    utterance.onend = () => setSpeaking(null);
-    utterance.onerror = () => setSpeaking(null);
+    utterance.onstart = () => {
+      setSpeaking(messageId);
+      if (voiceMode) {
+        voiceModeTTSRef.current = messageId;
+        setVoiceState('speaking');
+      }
+    };
+    
+    utterance.onend = () => {
+      setSpeaking(null);
+      if (voiceMode) {
+        voiceModeTTSRef.current = null;
+        // Mark that we should auto-restart listening
+        voiceModeAutoRestartRef.current = true;
+      }
+    };
+    
+    utterance.onerror = () => {
+      setSpeaking(null);
+      if (voiceMode) {
+        voiceModeTTSRef.current = null;
+        voiceModeAutoRestartRef.current = true;
+      }
+    };
 
     window.speechSynthesis.speak(utterance);
   };
@@ -390,25 +525,27 @@ export default function CustomChatInterface({ sessionId, onMessageSent, onVisual
       return;
     }
 
-    // For all other types (answer, status, followup), add to chat
-    const messageContent = data.message || data.answer;
-    if (messageContent !== undefined) {
-      const messageId = `assistant-${Date.now()}-${Math.random()}`;
-      const newMessage = {
-        id: messageId,
-        type: 'assistant',
-        content: messageContent,
-        timestamp: Date.now(),
-        responseType: responseType,
-        isFollowup: responseType === 'followup'
-      };
+    // For all other types (answer, status, followup), add to chat (only in normal mode)
+    if (!voiceMode) {
+      const messageContent = data.message || data.answer;
+      if (messageContent !== undefined) {
+        const messageId = `assistant-${Date.now()}-${Math.random()}`;
+        const newMessage = {
+          id: messageId,
+          type: 'assistant',
+          content: messageContent,
+          timestamp: Date.now(),
+          responseType: responseType,
+          isFollowup: responseType === 'followup'
+        };
 
-      // Add actions if present (for followup type)
-      if (data.actions && Array.isArray(data.actions)) {
-        newMessage.actions = data.actions;
+        // Add actions if present (for followup type)
+        if (data.actions && Array.isArray(data.actions)) {
+          newMessage.actions = data.actions;
+        }
+
+        setMessages(prev => [...prev, newMessage]);
       }
-
-      setMessages(prev => [...prev, newMessage]);
     }
   };
 
@@ -463,6 +600,10 @@ export default function CustomChatInterface({ sessionId, onMessageSent, onVisual
     isProcessingWorkflowRef.current = true;
     console.log(`Calling continueWorkflow with resumeUrl (attempt ${retryCount + 1}/${maxRetries + 1}):`, resumeUrl);
 
+    // Collect response text for voice mode TTS
+    let voiceModeResponseText = '';
+    let hasPendingResumeUrl = false; // Track if we set a resumeUrl that requires user input
+
     try {
       const requestBody = actionPayload
         ? { action: actionPayload.action, sessionId }
@@ -484,12 +625,24 @@ export default function CustomChatInterface({ sessionId, onMessageSent, onVisual
       if (response.status === 409) {
         console.log('Resume URL already consumed (409), ending workflow');
         isProcessingWorkflowRef.current = false;
+        // If in voice mode and we have collected text, speak it
+        if (voiceMode && voiceModeResponseText.trim()) {
+          const tempMessageId = `voice-continue-${Date.now()}`;
+          speakText(voiceModeResponseText.trim(), tempMessageId);
+        } else if (voiceMode) {
+          setIsLoading(false);
+          setVoiceState('idle');
+        }
         return;
       }
 
       if (!response.ok) {
         console.warn('Resume URL response not OK:', response.status);
         isProcessingWorkflowRef.current = false;
+        if (voiceMode) {
+          setIsLoading(false);
+          setVoiceState('idle');
+        }
         return;
       }
 
@@ -538,6 +691,14 @@ export default function CustomChatInterface({ sessionId, onMessageSent, onVisual
                 // Process this response
                 processResponse(data);
 
+                // Collect response text for voice mode TTS
+                if (voiceMode) {
+                  const messageContent = data.message || data.answer;
+                  if (messageContent) {
+                    voiceModeResponseText += messageContent + ' ';
+                  }
+                }
+
                 // Check for next resumeUrl
                 const nextResumeUrl = data.resumeUrl || data.resume_url;
                 if (nextResumeUrl) {
@@ -547,6 +708,15 @@ export default function CustomChatInterface({ sessionId, onMessageSent, onVisual
                   if (isWaitingForUserInput(data)) {
                     console.log('Storing resumeUrl - waiting for user input');
                     setCurrentResumeUrl(nextResumeUrl);
+                    hasPendingResumeUrl = true;
+                    // If in voice mode and we have collected text, speak it
+                    if (voiceMode && voiceModeResponseText.trim()) {
+                      const tempMessageId = `voice-continue-${Date.now()}`;
+                      speakText(voiceModeResponseText.trim(), tempMessageId);
+                    } else if (voiceMode) {
+                      setIsLoading(false);
+                      setVoiceState('idle');
+                    }
                   } else {
                     // Otherwise, recursively continue workflow
                     isProcessingWorkflowRef.current = false;
@@ -558,6 +728,20 @@ export default function CustomChatInterface({ sessionId, onMessageSent, onVisual
                 console.error('Error parsing resume URL response line:', e, 'Line:', line);
               }
             }
+          }
+
+          // After processing all streaming data, if no more resumeUrls and in voice mode, speak accumulated text
+          // Only do this if we haven't already handled a resumeUrl that requires user input
+          if (voiceMode && voiceModeResponseText.trim() && !hasPendingResumeUrl) {
+            const tempMessageId = `voice-continue-${Date.now()}`;
+            speakText(voiceModeResponseText.trim(), tempMessageId);
+            isProcessingWorkflowRef.current = false;
+            return;
+          } else if (voiceMode && !hasPendingResumeUrl) {
+            setIsLoading(false);
+            setVoiceState('idle');
+            isProcessingWorkflowRef.current = false;
+            return;
           }
         }
 
@@ -588,14 +772,40 @@ export default function CustomChatInterface({ sessionId, onMessageSent, onVisual
             // Process valid response
             processResponse(data);
 
+            // Collect response text for voice mode TTS
+            if (voiceMode) {
+              const messageContent = data.message || data.answer;
+              if (messageContent) {
+                voiceModeResponseText += messageContent + ' ';
+              }
+            }
+
             const nextResumeUrl = data.resumeUrl || data.resume_url;
             if (nextResumeUrl) {
               if (isWaitingForUserInput(data)) {
                 setCurrentResumeUrl(nextResumeUrl);
+                hasPendingResumeUrl = true;
+                // If in voice mode and we have collected text, speak it
+                if (voiceMode && voiceModeResponseText.trim()) {
+                  const tempMessageId = `voice-continue-${Date.now()}`;
+                  speakText(voiceModeResponseText.trim(), tempMessageId);
+                } else if (voiceMode) {
+                  setIsLoading(false);
+                  setVoiceState('idle');
+                }
               } else {
                 isProcessingWorkflowRef.current = false;
                 await continueWorkflow(nextResumeUrl);
                 return;
+              }
+            } else {
+              // No more resumeUrls - if in voice mode and we have collected text, speak it
+              if (voiceMode && voiceModeResponseText.trim() && !hasPendingResumeUrl) {
+                const tempMessageId = `voice-continue-${Date.now()}`;
+                speakText(voiceModeResponseText.trim(), tempMessageId);
+              } else if (voiceMode && !hasPendingResumeUrl) {
+                setIsLoading(false);
+                setVoiceState('idle');
               }
             }
           } catch (e) {
@@ -631,14 +841,40 @@ export default function CustomChatInterface({ sessionId, onMessageSent, onVisual
           // Process valid response
           processResponse(data);
 
+          // Collect response text for voice mode TTS
+          if (voiceMode) {
+            const messageContent = data.message || data.answer;
+            if (messageContent) {
+              voiceModeResponseText += messageContent + ' ';
+            }
+          }
+
           const nextResumeUrl = data.resumeUrl || data.resume_url;
           if (nextResumeUrl) {
             if (isWaitingForUserInput(data)) {
               setCurrentResumeUrl(nextResumeUrl);
+              hasPendingResumeUrl = true;
+              // If in voice mode and we have collected text, speak it
+              if (voiceMode && voiceModeResponseText.trim()) {
+                const tempMessageId = `voice-continue-${Date.now()}`;
+                speakText(voiceModeResponseText.trim(), tempMessageId);
+              } else if (voiceMode) {
+                setIsLoading(false);
+                setVoiceState('idle');
+              }
             } else {
               isProcessingWorkflowRef.current = false;
               await continueWorkflow(nextResumeUrl);
               return;
+            }
+          } else {
+            // No more resume URLs - if in voice mode and we have collected text, speak it
+            if (voiceMode && voiceModeResponseText.trim() && !hasPendingResumeUrl) {
+              const tempMessageId = `voice-continue-${Date.now()}`;
+              speakText(voiceModeResponseText.trim(), tempMessageId);
+            } else if (voiceMode && !hasPendingResumeUrl) {
+              setIsLoading(false);
+              setVoiceState('idle');
             }
           }
         } catch (e) {
@@ -647,35 +883,43 @@ export default function CustomChatInterface({ sessionId, onMessageSent, onVisual
       }
     } catch (error) {
       console.error('Error in continueWorkflow:', error);
+      if (voiceMode) {
+        setIsLoading(false);
+        setVoiceState('idle');
+      }
     } finally {
-      isProcessingWorkflowRef.current = false;
+      // Only set to false if we're not continuing the workflow
+      if (!voiceMode || !voiceModeResponseText.trim()) {
+        isProcessingWorkflowRef.current = false;
+      }
     }
   };
 
-  const handleSendMessage = async (questionText = null) => {
-    const messageText = (questionText || inputValue).trim();
-    if (!messageText || isLoading) return;
-
-    // Add user message
-    const userMessage = {
-      id: `user-${Date.now()}`,
-      type: 'user',
-      content: messageText,
-      timestamp: Date.now()
-    };
-
-    setMessages(prev => [...prev, userMessage]);
-    setInputValue('');
-    setShowSuggestions(false);
+  // Voice mode message handler (doesn't add to UI)
+  const handleSendMessageVoiceMode = async (questionText) => {
+    if (!questionText || isLoading) return;
+    
     setIsLoading(true);
+    setVoiceState('processing');
 
+    // Don't add message to UI in voice mode
+    if (onMessageSent) {
+      onMessageSent({
+        id: `user-${Date.now()}`,
+        type: 'user',
+        content: questionText,
+        timestamp: Date.now()
+      });
+    }
+
+    await processMessageRequest(questionText);
+  };
+
+  // Shared message processing logic
+  const processMessageRequest = async (messageText) => {
     // Check if there's a pending resumeUrl to respond to
     const pendingResumeUrl = currentResumeUrl;
     setCurrentResumeUrl(null); // Clear any stored resume URL from previous interaction
-
-    if (onMessageSent) {
-      onMessageSent(userMessage);
-    }
 
     abortControllerRef.current = new AbortController();
 
@@ -694,6 +938,7 @@ export default function CustomChatInterface({ sessionId, onMessageSent, onVisual
       let buffer = '';
       let firstResumeUrl = null;
       let lastResponseData = null;
+      let voiceModeResponseText = '';
 
       console.log('Initial webhook response received');
 
@@ -720,6 +965,14 @@ export default function CustomChatInterface({ sessionId, onMessageSent, onVisual
                 // Process this response
                 processResponse(data);
 
+                // Collect response text for voice mode TTS
+                if (voiceMode) {
+                  const messageContent = data.message || data.answer;
+                  if (messageContent) {
+                    voiceModeResponseText += messageContent + ' ';
+                  }
+                }
+
                 // Check for resumeUrl to continue workflow
                 const resumeUrl = data.resumeUrl || data.resume_url;
                 if (resumeUrl && !firstResumeUrl) {
@@ -740,6 +993,13 @@ export default function CustomChatInterface({ sessionId, onMessageSent, onVisual
             console.log('Initial webhook buffer data:', data);
             processResponse(data);
 
+            if (voiceMode) {
+              const messageContent = data.message || data.answer;
+              if (messageContent) {
+                voiceModeResponseText += messageContent + ' ';
+              }
+            }
+
             const resumeUrl = data.resumeUrl || data.resume_url;
             if (resumeUrl && !firstResumeUrl) {
               firstResumeUrl = resumeUrl;
@@ -758,6 +1018,13 @@ export default function CustomChatInterface({ sessionId, onMessageSent, onVisual
           const data = JSON.parse(responseText);
           processResponse(data);
 
+          if (voiceMode) {
+            const messageContent = data.message || data.answer;
+            if (messageContent) {
+              voiceModeResponseText = messageContent;
+            }
+          }
+
           const resumeUrl = data.resumeUrl || data.resume_url;
           if (resumeUrl) {
             firstResumeUrl = resumeUrl;
@@ -775,9 +1042,26 @@ export default function CustomChatInterface({ sessionId, onMessageSent, onVisual
         if (isWaitingForUserInput(lastResponseData)) {
           console.log('WaitType is interactive - storing resumeUrl for user action');
           setCurrentResumeUrl(firstResumeUrl);
+          // In voice mode, if we have response text, speak it
+          if (voiceMode && voiceModeResponseText.trim()) {
+            const tempMessageId = `voice-initial-${Date.now()}`;
+            speakText(voiceModeResponseText.trim(), tempMessageId);
+          } else if (voiceMode) {
+            setIsLoading(false);
+            setVoiceState('idle');
+          }
         } else {
           console.log('WaitType is automatic - continuing workflow automatically');
           await continueWorkflow(firstResumeUrl);
+        }
+      } else if (voiceMode) {
+        // No resumeUrl - if we have response text, speak it
+        if (voiceModeResponseText.trim()) {
+          const tempMessageId = `voice-initial-${Date.now()}`;
+          speakText(voiceModeResponseText.trim(), tempMessageId);
+        } else {
+          setIsLoading(false);
+          setVoiceState('idle');
         }
       }
     } catch (error) {
@@ -787,18 +1071,62 @@ export default function CustomChatInterface({ sessionId, onMessageSent, onVisual
       }
       console.error('Error sending message:', error);
       
-      // Add error message
-      setMessages(prev => [...prev, {
-        id: `error-${Date.now()}`,
-        type: 'assistant',
-        content: 'Sorry, I encountered an error processing your message. Please try again.',
-        timestamp: Date.now(),
-        isError: true
-      }]);
+      // Add error message (only in normal mode)
+      if (!voiceMode) {
+        setMessages(prev => [...prev, {
+          id: `error-${Date.now()}`,
+          type: 'assistant',
+          content: 'Sorry, I encountered an error processing your message. Please try again.',
+          timestamp: Date.now(),
+          isError: true
+        }]);
+      } else {
+        // In voice mode, speak error
+        const errorMessage = 'Sorry, I encountered an error processing your message. Please try again.';
+        const tempMessageId = `voice-error-${Date.now()}`;
+        speakText(errorMessage, tempMessageId);
+      }
     } finally {
-      setIsLoading(false);
+      if (!voiceMode || !voiceModeResponseText.trim()) {
+        setIsLoading(false);
+        if (voiceMode) {
+          setVoiceState('idle');
+        }
+      }
       abortControllerRef.current = null;
     }
+  };
+
+  const handleSendMessage = async (questionText = null) => {
+    const messageText = (questionText || inputValue).trim();
+    if (!messageText || isLoading) return;
+
+    // Add user message (only in normal mode)
+    if (!voiceMode) {
+      const userMessage = {
+        id: `user-${Date.now()}`,
+        type: 'user',
+        content: messageText,
+        timestamp: Date.now()
+      };
+
+      setMessages(prev => [...prev, userMessage]);
+      setInputValue('');
+      setShowSuggestions(false);
+    }
+    
+    setIsLoading(true);
+
+    if (onMessageSent) {
+      onMessageSent({
+        id: `user-${Date.now()}`,
+        type: 'user',
+        content: messageText,
+        timestamp: Date.now()
+      });
+    }
+
+    await processMessageRequest(messageText);
   };
 
   const handleKeyPress = (e) => {
@@ -807,6 +1135,20 @@ export default function CustomChatInterface({ sessionId, onMessageSent, onVisual
       handleSendMessage();
     } else if (e.key === 'Escape') {
       setShowSuggestions(false);
+      // Also stop speech recognition on Escape
+      if (isListening) {
+        stopListening();
+      }
+    }
+  };
+
+  const handleMicrophoneClick = () => {
+    if (isListening) {
+      stopListening();
+    } else {
+      // Clear input and start listening
+      setInputValue('');
+      startListening();
     }
   };
 
@@ -901,10 +1243,127 @@ export default function CustomChatInterface({ sessionId, onMessageSent, onVisual
     }
   });
 
+  // Voice Mode Overlay Component
+  const VoiceModeOverlay = () => {
+    if (!voiceMode) return null;
+
+    return (
+      <div className="fixed inset-0 bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 z-50 flex items-center justify-center">
+        {/* Exit Button */}
+        <button
+          onClick={() => setVoiceMode(false)}
+          className="absolute top-6 right-6 p-3 rounded-xl bg-slate-700/60 hover:bg-slate-700/80 text-slate-300 hover:text-white transition-all duration-200 shadow-lg"
+          title="Exit Voice Mode"
+        >
+          <X className="w-5 h-5" />
+        </button>
+
+        <div className="flex flex-col items-center justify-center space-y-8">
+          {/* Status Text */}
+          <div className="text-center">
+            <p className="text-2xl font-semibold text-slate-200 mb-2">
+              {voiceState === 'listening' && 'Listening...'}
+              {voiceState === 'processing' && 'Processing...'}
+              {voiceState === 'speaking' && 'Speaking...'}
+              {voiceState === 'idle' && 'Voice Mode'}
+            </p>
+            <p className="text-sm text-slate-400">
+              {voiceState === 'listening' && 'Speak your question'}
+              {voiceState === 'processing' && 'Thinking...'}
+              {voiceState === 'speaking' && 'Playing response'}
+              {voiceState === 'idle' && 'Ready to listen'}
+            </p>
+          </div>
+
+          {/* Visual Indicator */}
+          <div className="relative">
+            {/* Listening State - Pulsing Blue Circle with Mic */}
+            {voiceState === 'listening' && (
+              <div className="relative">
+                {/* Outer pulsing ring */}
+                <div className="absolute inset-0 rounded-full bg-blue-500/20 animate-ping"></div>
+                <div className="absolute inset-0 rounded-full bg-blue-500/30 animate-pulse"></div>
+                
+                {/* Main circle */}
+                <div className="relative w-48 h-48 rounded-full bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center shadow-2xl shadow-blue-500/50">
+                  <Mic className="w-16 h-16 text-white" />
+                </div>
+                
+                {/* Inner pulse */}
+                <div className="absolute inset-8 rounded-full border-4 border-blue-400/50 animate-pulse"></div>
+              </div>
+            )}
+
+            {/* Processing State - Spinning Loader */}
+            {voiceState === 'processing' && (
+              <div className="relative w-48 h-48 flex items-center justify-center">
+                <div className="absolute inset-0 rounded-full border-8 border-slate-600 border-t-blue-500 animate-spin"></div>
+                <div className="absolute inset-8 rounded-full border-8 border-slate-700 border-t-blue-400 animate-spin" style={{ animationDirection: 'reverse', animationDuration: '1.5s' }}></div>
+                <div className="relative w-24 h-24 rounded-full bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center shadow-xl">
+                  <Bot className="w-12 h-12 text-white" />
+                </div>
+              </div>
+            )}
+
+            {/* Speaking State - Animated Sound Waves */}
+            {voiceState === 'speaking' && (
+              <div className="relative w-48 h-48 flex items-center justify-center">
+                {/* Sound wave bars */}
+                <div className="flex items-end gap-2 h-32">
+                  {[0, 1, 2, 3, 4].map((i) => (
+                    <div
+                      key={i}
+                      className="w-3 bg-blue-500 rounded-full voice-wave-bar"
+                      style={{
+                        height: `${30 + (i % 3) * 20}%`,
+                        animationDelay: `${i * 0.15}s`
+                      }}
+                    ></div>
+                  ))}
+                </div>
+                
+                {/* Central icon */}
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <div className="w-32 h-32 rounded-full bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center shadow-2xl shadow-blue-500/50">
+                    <Volume2 className="w-12 h-12 text-white" />
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Idle State */}
+            {voiceState === 'idle' && (
+              <div className="relative w-48 h-48 rounded-full bg-gradient-to-br from-slate-600 to-slate-700 flex items-center justify-center shadow-2xl">
+                <Radio className="w-16 h-16 text-slate-400" />
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="flex flex-col h-full bg-transparent relative">
-      {/* Messages Container */}
-      <div className="flex-1 overflow-y-auto px-8 py-8 space-y-8">
+      {/* Voice Mode Toggle Button */}
+      {!voiceMode && (
+        <button
+          onClick={() => setVoiceMode(true)}
+          disabled={!isSpeechSupported}
+          className="absolute top-4 right-4 z-10 p-3 rounded-xl bg-gradient-to-r from-blue-600 to-blue-500 text-white hover:from-blue-500 hover:to-blue-400 transition-all duration-200 shadow-lg shadow-blue-500/40 hover:shadow-blue-500/60 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+          title="Enter Voice Mode"
+        >
+          <Radio className="w-5 h-5" />
+          <span className="text-sm font-medium">Voice Mode</span>
+        </button>
+      )}
+
+      {/* Voice Mode Overlay */}
+      <VoiceModeOverlay />
+
+      {/* Messages Container - Hidden in voice mode */}
+      {!voiceMode && (
+        <div className="flex-1 overflow-y-auto px-8 py-8 space-y-8">
         
         {/* Suggested Questions - Show when chat is empty or only has welcome message */}
         {groupedMessages.length === 0 && standaloneMessages.length <= 1 && suggestedQuestions.length > 0 && (
@@ -1070,11 +1529,41 @@ export default function CustomChatInterface({ sessionId, onMessageSent, onVisual
         ))}
         
         <div ref={messagesEndRef} />
-      </div>
+        </div>
+      )}
 
-      {/* Input Area */}
-      <div className="border-t border-slate-700/50 bg-slate-800/40 backdrop-blur-md px-8 py-6">
+      {/* Input Area - Hidden in voice mode */}
+      {!voiceMode && (
+        <div className="border-t border-slate-700/50 bg-slate-800/40 backdrop-blur-md px-8 py-6">
         <div className="max-w-4xl mx-auto">
+          {/* Recording indicator */}
+          {isListening && (
+            <div className="mb-3 flex items-center gap-2 px-4 py-2 bg-red-500/20 border border-red-500/30 rounded-xl animate-pulse">
+              <div className="relative">
+                <Mic className="w-4 h-4 text-red-400" />
+                <div className="absolute inset-0 w-4 h-4 bg-red-400 rounded-full animate-ping opacity-75"></div>
+              </div>
+              <p className="text-sm text-red-300 font-medium">Listening...</p>
+              {interimTranscript && (
+                <p className="text-xs text-red-200/70 ml-auto italic">"{interimTranscript}"</p>
+              )}
+            </div>
+          )}
+
+          {/* Speech error message */}
+          {speechError && !isListening && (
+            <div className="mb-3 px-4 py-2 bg-yellow-500/20 border border-yellow-500/30 rounded-xl">
+              <p className="text-sm text-yellow-300">{speechError}</p>
+            </div>
+          )}
+
+          {/* Browser not supported message */}
+          {!isSpeechSupported && (
+            <div className="mb-3 px-4 py-2 bg-slate-700/50 border border-slate-600/50 rounded-xl">
+              <p className="text-xs text-slate-400">Voice input not supported in this browser. Use Chrome or Edge for speech recognition.</p>
+            </div>
+          )}
+
           <div className="relative" ref={suggestionsRef}>
             <textarea
               ref={inputRef}
@@ -1086,14 +1575,18 @@ export default function CustomChatInterface({ sessionId, onMessageSent, onVisual
                   setShowSuggestions(true);
                 }
               }}
-              placeholder="Ask me anything about your data..."
+              placeholder={isListening ? "Listening..." : "Ask me anything about your data..."}
               rows={1}
-              className="w-full px-6 py-4 pr-16 rounded-2xl bg-slate-700/60 border-2 border-slate-600/50 text-white placeholder-slate-400 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50 text-sm transition-all duration-200 shadow-xl"
+              className={`w-full px-6 py-4 ${isSpeechSupported ? 'pr-36' : 'pr-16'} rounded-2xl bg-slate-700/60 border-2 ${
+                isListening 
+                  ? 'border-red-500/50 ring-2 ring-red-500/20' 
+                  : 'border-slate-600/50'
+              } text-white placeholder-slate-400 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50 text-sm transition-all duration-200 shadow-xl`}
               style={{
                 minHeight: '60px',
                 maxHeight: '120px'
               }}
-              disabled={isLoading}
+              disabled={isLoading || isListening}
             />
             
             {/* Autocomplete Dropdown */}
@@ -1119,9 +1612,29 @@ export default function CustomChatInterface({ sessionId, onMessageSent, onVisual
               </div>
             )}
             
+            {/* Microphone button (only if supported) */}
+            {isSpeechSupported && (
+              <button
+                onClick={handleMicrophoneClick}
+                disabled={isLoading}
+                className={`absolute right-20 bottom-3 p-3.5 rounded-xl transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed ${
+                  isListening
+                    ? 'bg-gradient-to-r from-red-600 to-red-500 text-white hover:from-red-500 hover:to-red-400 shadow-lg shadow-red-500/40 hover:shadow-red-500/60 animate-pulse'
+                    : 'bg-slate-600/60 text-slate-300 hover:bg-slate-600 hover:text-white shadow-lg'
+                } active:scale-95`}
+                title={isListening ? "Stop recording" : "Start voice input"}
+              >
+                {isListening ? (
+                  <MicOff className="w-5 h-5" />
+                ) : (
+                  <Mic className="w-5 h-5" />
+                )}
+              </button>
+            )}
+            
             <button
               onClick={() => handleSendMessage()}
-              disabled={!inputValue.trim() || isLoading}
+              disabled={!inputValue.trim() || isLoading || isListening}
               className="absolute right-3 bottom-3 p-3.5 rounded-xl transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed bg-gradient-to-r from-blue-600 to-blue-500 text-white hover:from-blue-500 hover:to-blue-400 disabled:hover:from-blue-600 disabled:hover:to-blue-500 shadow-lg shadow-blue-500/40 hover:shadow-blue-500/60 active:scale-95"
               title="Send message"
             >
@@ -1129,10 +1642,22 @@ export default function CustomChatInterface({ sessionId, onMessageSent, onVisual
             </button>
           </div>
           <p className="text-xs text-slate-500 mt-3 text-center">
-            Press <kbd className="px-2 py-0.5 rounded bg-slate-700/50 border border-slate-600/50 text-slate-400 font-mono">Enter</kbd> to send, <kbd className="px-2 py-0.5 rounded bg-slate-700/50 border border-slate-600/50 text-slate-400 font-mono">Esc</kbd> to close suggestions
+            {isSpeechSupported ? (
+              <>
+                Press <kbd className="px-2 py-0.5 rounded bg-slate-700/50 border border-slate-600/50 text-slate-400 font-mono">Enter</kbd> to send, 
+                <kbd className="px-2 py-0.5 rounded bg-slate-700/50 border border-slate-600/50 text-slate-400 font-mono ml-1">Esc</kbd> to cancel, 
+                or click <Mic className="w-3 h-3 inline mx-0.5 text-slate-400" /> for voice input
+              </>
+            ) : (
+              <>
+                Press <kbd className="px-2 py-0.5 rounded bg-slate-700/50 border border-slate-600/50 text-slate-400 font-mono">Enter</kbd> to send, 
+                <kbd className="px-2 py-0.5 rounded bg-slate-700/50 border border-slate-600/50 text-slate-400 font-mono ml-1">Esc</kbd> to close suggestions
+              </>
+            )}
           </p>
         </div>
       </div>
+      )}
     </div>
   );
 }
