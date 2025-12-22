@@ -1,12 +1,10 @@
 /**
- * Metabase Content Proxy
- * Place this at /api/metabase/[...path].js to catch all routes
+ * Metabase Content Proxy (Alternative Route)
  *
- * Usage from frontend:
- *   // Instead of:
- *   // http://139.185.56.253:3000/public/question/...
- *   // Use:
- *   // /api/metabase/public/question/...
+ * This is a fallback proxy that uses query parameters instead of path-based routing
+ * Usage: /api/metabase?path=public/question/...
+ *
+ * This serves as a backup if the catch-all route [...path].js doesn't work
  */
 
 export default async function handler(req, res) {
@@ -20,55 +18,33 @@ export default async function handler(req, res) {
   }
 
   try {
-    // Get the path from query params (Vercel uses "path" for [...path].js catch-all routes)
-    // The path will be an array of path segments
-    let metabasePath = '';
+    // Get the path from query parameter
+    const pathParam = req.query.path;
 
-    if (req.query.path) {
-      // req.query.path is an array for catch-all routes
-      metabasePath = Array.isArray(req.query.path)
-        ? req.query.path.join('/')
-        : req.query.path;
-    } else {
-      // Fallback: try to extract from the URL directly
-      const urlPath = req.url || '';
-      const match = urlPath.match(/^\/api\/metabase\/(.+?)(\?|$)/);
-      if (match) {
-        metabasePath = match[1];
-      }
-    }
-    
-    if (!metabasePath) {
-      console.error('Missing path in query:', req.query);
-      return res.status(400).json({ 
-        error: 'Missing path',
-        query: req.query 
+    if (!pathParam) {
+      return res.status(400).json({
+        error: 'Missing path parameter',
+        usage: '/api/metabase?path=public/question/...',
+        query: req.query
       });
     }
-    
+
+    const metabasePath = Array.isArray(pathParam) ? pathParam.join('/') : pathParam;
+
     // Get query string if any (exclude the path parameter)
-    // Extract from original URL if present
-    const originalUrl = req.url || '';
-    const queryIndex = originalUrl.indexOf('?');
-    let queryString = '';
-    if (queryIndex > -1) {
-      const fullQuery = originalUrl.substring(queryIndex + 1);
-      // Filter out path-related query params
-      const params = new URLSearchParams(fullQuery);
-      params.delete('path');
-      params.delete('...path');
-      queryString = params.toString();
-    }
-    
+    const params = new URLSearchParams(req.url.split('?')[1] || '');
+    params.delete('path');
+    const queryString = params.toString();
+
     // Build full Metabase URL
     const metabaseBase = 'http://139.185.56.253:3000';
-    const targetUrl = queryString 
+    const targetUrl = queryString
       ? `${metabaseBase}/${metabasePath}?${queryString}`
       : `${metabaseBase}/${metabasePath}`;
-    
-    console.log('Request query:', req.query);
-    console.log('Metabase path:', metabasePath);
-    console.log('Proxying to:', targetUrl);
+
+    console.log('[Metabase Proxy] Query:', req.query);
+    console.log('[Metabase Proxy] Path:', metabasePath);
+    console.log('[Metabase Proxy] Target URL:', targetUrl);
 
     // Fetch from Metabase
     const response = await fetch(targetUrl, {
@@ -80,19 +56,20 @@ export default async function handler(req, res) {
     });
 
     if (!response.ok) {
-      console.error('Metabase error:', response.status);
-      return res.status(response.status).json({ 
+      console.error('[Metabase Proxy] Error:', response.status, response.statusText);
+      return res.status(response.status).json({
         error: 'Metabase request failed',
         status: response.status,
+        statusText: response.statusText,
         url: targetUrl
       });
     }
 
     const contentType = response.headers.get('content-type') || 'text/html';
-    
+
     // For binary content, pass through
-    if (contentType.includes('image/') || 
-        contentType.includes('font/') || 
+    if (contentType.includes('image/') ||
+        contentType.includes('font/') ||
         contentType.includes('woff') ||
         contentType.includes('octet-stream')) {
       const buffer = await response.arrayBuffer();
@@ -103,50 +80,50 @@ export default async function handler(req, res) {
 
     // For text content, rewrite URLs
     const text = await response.text();
-    
+
     // Get the proxy base URL
     const protocol = req.headers['x-forwarded-proto'] || 'https';
     const host = req.headers.host;
     const proxyBase = `${protocol}://${host}/api/metabase`;
-    
+
     // Replace URLs in the content
     let modified = text
       // Replace absolute HTTP URLs to Metabase
       .replace(/http:\/\/139\.185\.56\.253:3000/g, proxyBase)
       // Replace root-relative URLs
-      .replace(/(['"`(])\/app\//g, `$1${proxyBase}/app/`)
-      .replace(/(['"`(])\/public\//g, `$1${proxyBase}/public/`)
-      .replace(/(['"`(])\/api\//g, `$1${proxyBase}/api/`)
-      .replace(/(['"`(])\/static\//g, `$1${proxyBase}/static/`)
+      .replace(/(['"`(])\/app\//g, `$1${proxyBase}?path=app/`)
+      .replace(/(['"`(])\/public\//g, `$1${proxyBase}?path=public/`)
+      .replace(/(['"`(])\/api\//g, `$1${proxyBase}?path=api/`)
+      .replace(/(['"`(])\/static\//g, `$1${proxyBase}?path=static/`)
       // Replace in src/href attributes
-      .replace(/src="\/([^"]+)"/g, `src="${proxyBase}/$1"`)
+      .replace(/src="\/([^"]+)"/g, `src="${proxyBase}?path=$1"`)
       .replace(/href="\/([^"]+)"/g, (match, p) => {
         if (p.startsWith('#') || p.startsWith('mailto:') || p.startsWith('javascript:')) {
           return match;
         }
-        return `href="${proxyBase}/${p}"`;
+        return `href="${proxyBase}?path=${p}"`;
       });
 
     // Set response headers
     res.setHeader('Content-Type', contentType);
     res.setHeader('X-Frame-Options', 'ALLOWALL');
     res.setHeader('Content-Security-Policy', "frame-ancestors *");
-    
+
     // Copy other useful headers
     const cacheControl = response.headers.get('cache-control');
     if (cacheControl) {
       res.setHeader('Cache-Control', cacheControl);
     }
 
+    console.log('[Metabase Proxy] Success - returned', contentType);
     res.status(200).send(modified);
 
   } catch (error) {
-    console.error('Proxy error:', error);
-    res.status(500).json({ 
-      error: 'Proxy error', 
-      message: error.message 
+    console.error('[Metabase Proxy] Error:', error);
+    res.status(500).json({
+      error: 'Proxy error',
+      message: error.message,
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
     });
   }
 }
-
-
