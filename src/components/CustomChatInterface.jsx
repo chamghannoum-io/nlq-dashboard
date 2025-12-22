@@ -663,6 +663,36 @@ export default function CustomChatInterface({ sessionId, onMessageSent, onVisual
       let detectedWaitType = null; // Track waitType from ANY chunk
       let accumulatedResponseData = {}; // Accumulate all response fields across chunks
       let nextResumeUrlFound = null; // Track resumeUrl found during streaming
+      let decisionMade = false; // Track if we've already made a decision
+
+      // Helper function to make immediate decision when we have both resumeUrl and waitType
+      const makeImmediateDecision = async (resumeUrl, waitType, data) => {
+        if (decisionMade) return; // Don't make decision twice
+        
+        const waitTypeData = waitType ? { waitType, ...data } : data;
+        console.log('Making immediate decision in continueWorkflow with:', { resumeUrl, waitType, data });
+        
+        if (isWaitingForUserInput(waitTypeData)) {
+          console.log('Storing resumeUrl - waiting for user input');
+          setCurrentResumeUrl(resumeUrl);
+          hasPendingResumeUrl = true;
+          decisionMade = true;
+          // If in voice mode and we have collected text, speak it
+          if (voiceMode && voiceModeResponseText.trim()) {
+            const tempMessageId = `voice-continue-${Date.now()}`;
+            speakText(voiceModeResponseText.trim(), tempMessageId);
+          } else if (voiceMode) {
+            setIsLoading(false);
+            setVoiceState('idle');
+          }
+        } else {
+          console.log('WaitType is automatic - continuing workflow automatically');
+          decisionMade = true;
+          isProcessingWorkflowRef.current = false;
+          await continueWorkflow(resumeUrl);
+          return; // Important: return to avoid setting isProcessing to false twice
+        }
+      };
 
       if (reader) {
         // Handle streaming response
@@ -688,6 +718,12 @@ export default function CustomChatInterface({ sessionId, onMessageSent, onVisual
                 if (data.waitType) {
                   detectedWaitType = data.waitType;
                   console.log(`Captured waitType from resume chunk: "${detectedWaitType}"`);
+                  
+                  // If we already have a resumeUrl, make decision immediately
+                  if (nextResumeUrlFound && !decisionMade) {
+                    await makeImmediateDecision(nextResumeUrlFound, detectedWaitType, accumulatedResponseData);
+                    if (decisionMade) return; // Exit if decision was made
+                  }
                 }
 
                 // Accumulate all fields from this chunk
@@ -721,11 +757,17 @@ export default function CustomChatInterface({ sessionId, onMessageSent, onVisual
                   }
                 }
 
-                // Track resumeUrl but don't act on it yet - wait for all chunks to process waitType
+                // Check for resumeUrl and make decision immediately if we have waitType
                 const nextResumeUrl = data.resumeUrl || data.resume_url;
                 if (nextResumeUrl && !nextResumeUrlFound) {
                   nextResumeUrlFound = nextResumeUrl;
                   console.log('Found next resumeUrl during streaming:', nextResumeUrl);
+                  
+                  // If we already have waitType, make decision immediately
+                  if (detectedWaitType && !decisionMade) {
+                    await makeImmediateDecision(nextResumeUrl, detectedWaitType, accumulatedResponseData);
+                    if (decisionMade) return; // Exit if decision was made
+                  }
                 }
               } catch (e) {
                 console.error('Error parsing resume URL response line:', e, 'Line:', line);
@@ -789,34 +831,13 @@ export default function CustomChatInterface({ sessionId, onMessageSent, onVisual
           }
         }
 
-        // After processing ALL chunks, check waitType to determine next action
-        const finalWaitType = detectedWaitType || accumulatedResponseData.waitType;
-        console.log('Final waitType determination for resume:', { detectedWaitType, accumulatedWaitType: accumulatedResponseData.waitType, finalWaitType });
-        console.log('Accumulated response data:', accumulatedResponseData);
-
-        if (nextResumeUrlFound) {
-          // Create a data object with the waitType for checking
-          const waitTypeData = finalWaitType ? { waitType: finalWaitType, ...accumulatedResponseData } : accumulatedResponseData;
-          
-          if (isWaitingForUserInput(waitTypeData)) {
-            console.log('Storing resumeUrl - waiting for user input');
-            setCurrentResumeUrl(nextResumeUrlFound);
-            hasPendingResumeUrl = true;
-            // If in voice mode and we have collected text, speak it
-            if (voiceMode && voiceModeResponseText.trim()) {
-              const tempMessageId = `voice-continue-${Date.now()}`;
-              speakText(voiceModeResponseText.trim(), tempMessageId);
-            } else if (voiceMode) {
-              setIsLoading(false);
-              setVoiceState('idle');
-            }
-          } else {
-            // Otherwise, recursively continue workflow
-            isProcessingWorkflowRef.current = false;
-            await continueWorkflow(nextResumeUrlFound);
-            return; // Important: return to avoid setting isProcessing to false twice
-          }
-        } else {
+        // If we haven't made a decision yet, make it now with final accumulated data
+        if (!decisionMade && nextResumeUrlFound) {
+          const finalWaitType = detectedWaitType || accumulatedResponseData.waitType;
+          console.log('Final waitType determination for resume:', { detectedWaitType, accumulatedWaitType: accumulatedResponseData.waitType, finalWaitType });
+          console.log('Accumulated response data:', accumulatedResponseData);
+          await makeImmediateDecision(nextResumeUrlFound, finalWaitType, accumulatedResponseData);
+        } else if (!decisionMade) {
           // No resumeUrl found - if in voice mode and we have collected text, speak it
           if (voiceMode && voiceModeResponseText.trim() && !hasPendingResumeUrl) {
             const tempMessageId = `voice-continue-${Date.now()}`;
@@ -945,6 +966,9 @@ export default function CustomChatInterface({ sessionId, onMessageSent, onVisual
 
   // Shared message processing logic
   const processMessageRequest = async (messageText) => {
+    // Reset processing flag at the start of each request
+    isProcessingWorkflowRef.current = false;
+    
     // Check if there's a pending resumeUrl to respond to
     const pendingResumeUrl = currentResumeUrl;
     setCurrentResumeUrl(null); // Clear any stored resume URL from previous interaction
@@ -968,8 +992,35 @@ export default function CustomChatInterface({ sessionId, onMessageSent, onVisual
       let detectedWaitType = null; // Track waitType from ANY chunk
       let accumulatedResponseData = {}; // Accumulate all response fields across chunks
       let voiceModeResponseText = '';
+      let decisionMade = false; // Track if we've already made a decision
 
       console.log('Initial webhook response received');
+
+      // Helper function to make immediate decision when we have both resumeUrl and waitType
+      const makeImmediateDecision = (resumeUrl, waitType, data) => {
+        if (decisionMade) return; // Don't make decision twice
+        
+        const waitTypeData = waitType ? { waitType, ...data } : data;
+        console.log('Making immediate decision with:', { resumeUrl, waitType, data });
+        
+        if (isWaitingForUserInput(waitTypeData)) {
+          console.log('WaitType is interactive - storing resumeUrl for user action');
+          setCurrentResumeUrl(resumeUrl);
+          decisionMade = true;
+          // In voice mode, if we have response text, speak it
+          if (voiceMode && voiceModeResponseText.trim()) {
+            const tempMessageId = `voice-initial-${Date.now()}`;
+            speakText(voiceModeResponseText.trim(), tempMessageId);
+          } else if (voiceMode) {
+            setIsLoading(false);
+            setVoiceState('idle');
+          }
+        } else {
+          console.log('WaitType is automatic - continuing workflow automatically');
+          decisionMade = true;
+          continueWorkflow(resumeUrl);
+        }
+      };
 
       if (reader) {
         // Handle streaming response
@@ -995,6 +1046,11 @@ export default function CustomChatInterface({ sessionId, onMessageSent, onVisual
                 if (data.waitType) {
                   detectedWaitType = data.waitType;
                   console.log(`Captured waitType from chunk: "${detectedWaitType}"`);
+                  
+                  // If we already have a resumeUrl, make decision immediately
+                  if (firstResumeUrl && !decisionMade) {
+                    makeImmediateDecision(firstResumeUrl, detectedWaitType, accumulatedResponseData);
+                  }
                 }
 
                 // Accumulate all fields from this chunk
@@ -1016,6 +1072,11 @@ export default function CustomChatInterface({ sessionId, onMessageSent, onVisual
                 if (resumeUrl && !firstResumeUrl) {
                   firstResumeUrl = resumeUrl;
                   console.log('Found resumeUrl:', resumeUrl);
+                  
+                  // If we already have waitType, make decision immediately
+                  if (detectedWaitType && !decisionMade) {
+                    makeImmediateDecision(resumeUrl, detectedWaitType, accumulatedResponseData);
+                  }
                 }
               } catch (e) {
                 console.error('Error parsing initial response line:', e, 'Line:', line);
@@ -1091,34 +1152,13 @@ export default function CustomChatInterface({ sessionId, onMessageSent, onVisual
         }
       }
 
-      // After processing ALL chunks, check waitType to determine next action
-      // Use detectedWaitType if available, otherwise fall back to accumulatedResponseData
-      const finalWaitType = detectedWaitType || accumulatedResponseData.waitType;
-      console.log('Final waitType determination:', { detectedWaitType, accumulatedWaitType: accumulatedResponseData.waitType, finalWaitType });
-      console.log('Accumulated response data:', accumulatedResponseData);
-      
-      if (firstResumeUrl) {
-        console.log('Checking waitType for resumeUrl:', firstResumeUrl);
-        
-        // Create a data object with the waitType for checking
-        const waitTypeData = finalWaitType ? { waitType: finalWaitType, ...accumulatedResponseData } : accumulatedResponseData;
-        
-        if (isWaitingForUserInput(waitTypeData)) {
-          console.log('WaitType is interactive - storing resumeUrl for user action');
-          setCurrentResumeUrl(firstResumeUrl);
-          // In voice mode, if we have response text, speak it
-          if (voiceMode && voiceModeResponseText.trim()) {
-            const tempMessageId = `voice-initial-${Date.now()}`;
-            speakText(voiceModeResponseText.trim(), tempMessageId);
-          } else if (voiceMode) {
-            setIsLoading(false);
-            setVoiceState('idle');
-          }
-        } else {
-          console.log('WaitType is automatic - continuing workflow automatically');
-          await continueWorkflow(firstResumeUrl);
-        }
-      } else if (voiceMode) {
+      // If we haven't made a decision yet, make it now with final accumulated data
+      if (!decisionMade && firstResumeUrl) {
+        const finalWaitType = detectedWaitType || accumulatedResponseData.waitType;
+        console.log('Final waitType determination:', { detectedWaitType, accumulatedWaitType: accumulatedResponseData.waitType, finalWaitType });
+        console.log('Accumulated response data:', accumulatedResponseData);
+        makeImmediateDecision(firstResumeUrl, finalWaitType, accumulatedResponseData);
+      } else if (!decisionMade && voiceMode) {
         // No resumeUrl - if we have response text, speak it
         if (voiceModeResponseText.trim()) {
           const tempMessageId = `voice-initial-${Date.now()}`;
