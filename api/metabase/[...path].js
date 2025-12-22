@@ -20,20 +20,41 @@ export default async function handler(req, res) {
   }
 
   try {
-    // Get the path from query params (Vercel passes [...path] as query.path array)
-    const pathArray = req.query.path || [];
-    const path = Array.isArray(pathArray) ? pathArray.join('/') : pathArray;
+    // Get the path from query params (Vercel uses "...path" for catch-all routes)
+    const path = req.query['...path'] || req.query.path || '';
+    const metabasePath = Array.isArray(path) ? path.join('/') : path;
     
-    // Get query string if any
-    const queryString = req.url.split('?')[1] || '';
+    if (!metabasePath) {
+      console.error('Missing path in query:', req.query);
+      return res.status(400).json({ 
+        error: 'Missing path',
+        query: req.query 
+      });
+    }
+    
+    // Get query string if any (exclude the path parameter)
+    // Extract from original URL if present
+    const originalUrl = req.url || '';
+    const queryIndex = originalUrl.indexOf('?');
+    let queryString = '';
+    if (queryIndex > -1) {
+      const fullQuery = originalUrl.substring(queryIndex + 1);
+      // Filter out path-related query params
+      const params = new URLSearchParams(fullQuery);
+      params.delete('path');
+      params.delete('...path');
+      queryString = params.toString();
+    }
     
     // Build full Metabase URL
     const metabaseBase = 'http://139.185.56.253:3000';
     const targetUrl = queryString 
-      ? `${metabaseBase}/${path}?${queryString}`
-      : `${metabaseBase}/${path}`;
+      ? `${metabaseBase}/${metabasePath}?${queryString}`
+      : `${metabaseBase}/${metabasePath}`;
     
-    console.log('Proxying:', targetUrl);
+    console.log('Request query:', req.query);
+    console.log('Metabase path:', metabasePath);
+    console.log('Proxying to:', targetUrl);
 
     // Fetch from Metabase
     const response = await fetch(targetUrl, {
