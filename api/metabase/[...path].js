@@ -120,8 +120,10 @@ module.exports = async function handler(req, res) {
 
     // Replace URLs in the content - COMPREHENSIVE REPLACEMENTS
     let modified = text
-      // Replace absolute HTTP URLs to Metabase
-      .replace(/http:\/\/139\.185\.56\.253:3000/g, proxyBase)
+      // Replace absolute HTTP URLs to Metabase with full proxy URLs including path
+      .replace(/http:\/\/139\.185\.56\.253:3000\/([^"'\s<>]+)/g, (match, path) => {
+        return toProxyUrl('/' + path);
+      })
 
       // Replace src attributes (scripts, images, iframes)
       .replace(/src=(["'])\/([^"']+)\1/gi, (match, quote, path) => {
