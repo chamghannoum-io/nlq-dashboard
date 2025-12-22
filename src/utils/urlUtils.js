@@ -14,39 +14,11 @@ export function convertToHttps(url) {
     return url;
   }
 
-  // For HTTP Metabase URLs, convert to query-parameter proxy
+  // For HTTP Metabase URLs, use Vercel's transparent proxy
   if (url.startsWith('http://139.185.56.253:3000')) {
-    // Extract the path and query parameters
-    try {
-      const urlObj = new URL(url);
-      const path = urlObj.pathname.replace(/^\//, ''); // Remove leading slash
-      const search = urlObj.search;
-      const hash = urlObj.hash;
-
-      // Build the proxy URL with query parameter
-      // Format: /api/metabase?path=public/question/...
-      let proxyUrl = `/api/metabase?path=${encodeURIComponent(path)}`;
-
-      // Add any query parameters from the original URL
-      if (search) {
-        const params = new URLSearchParams(search);
-        params.forEach((value, key) => {
-          proxyUrl += `&${encodeURIComponent(key)}=${encodeURIComponent(value)}`;
-        });
-      }
-
-      // Add hash/fragment
-      if (hash) {
-        proxyUrl += hash;
-      }
-
-      return proxyUrl;
-    } catch (e) {
-      console.error('Error parsing Metabase URL:', e);
-      // Fallback: try simple conversion
-      const path = url.replace('http://139.185.56.253:3000/', '');
-      return `/api/metabase?path=${encodeURIComponent(path)}`;
-    }
+    // Simply replace the Metabase domain with /metabase
+    // Vercel's rewrite will transparently proxy to the real server
+    return url.replace('http://139.185.56.253:3000', '/metabase');
   }
 
   // For other HTTP URLs, use the old proxy method as fallback
