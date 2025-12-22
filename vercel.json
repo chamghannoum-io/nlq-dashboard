@@ -1,0 +1,9 @@
+{
+  "rewrites": [
+    {
+      "source": "/api/metabase/:path*",
+      "destination": "/api/metabase/:path*"
+    }
+  ]
+}
+
