@@ -29,10 +29,11 @@ export default async function handler(req, res) {
     console.log('N8N_BASE_URL:', N8N_BASE_URL);
 
     // Get the path from the request
+    // Vercel uses "...path" as the query key for catch-all routes [...path]
     // Examples:
     // /api/webhook/nlq-chat -> /webhook/nlq-chat
     // /api/webhook/waiting/764222 -> /webhook-waiting/764222
-    const path = req.query.path;
+    const path = req.query['...path'] || req.query.path;
     const webhookPath = Array.isArray(path) ? path.join('/') : path;
     
     console.log('Webhook path:', webhookPath);
@@ -56,11 +57,11 @@ export default async function handler(req, res) {
       targetUrl = `${N8N_BASE_URL}/webhook/${webhookPath}`;
     }
 
-    // Forward query parameters
+    // Forward query parameters (exclude the path parameter)
     const url = new URL(targetUrl);
     if (req.query) {
       Object.keys(req.query).forEach(key => {
-        if (key !== 'path') {
+        if (key !== 'path' && key !== '...path') {
           url.searchParams.append(key, req.query[key]);
         }
       });
