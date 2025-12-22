@@ -280,7 +280,53 @@ export default async function handler(req, res) {
         return `${space}${attr}=${quote}${toProxyUrl(url)}${endQuote}`;
       })
       // Add base tag to help resolve relative URLs (but we'll still proxy them)
-      .replace(/<head([^>]*)>/i, `<head$1><base href="${metabaseBase}/">`);
+      .replace(/<head([^>]*)>/i, `<head$1><base href="${metabaseBase}/">
+      <script>
+        (function() {
+          // Override fetch to intercept HTTP requests
+          const originalFetch = window.fetch;
+          window.fetch = function(url, options) {
+            if (typeof url === 'string' && url.startsWith('http://')) {
+              url = '${proxyBase}/api/proxy?url=' + encodeURIComponent(url);
+            } else if (typeof url === 'string' && url.startsWith('/')) {
+              url = '${proxyBase}/api/proxy?url=' + encodeURIComponent('${metabaseBase}' + url);
+            }
+            return originalFetch.call(this, url, options);
+          };
+          
+          // Override XMLHttpRequest to intercept HTTP requests
+          const originalOpen = XMLHttpRequest.prototype.open;
+          XMLHttpRequest.prototype.open = function(method, url, async, user, password) {
+            if (typeof url === 'string' && url.startsWith('http://')) {
+              url = '${proxyBase}/api/proxy?url=' + encodeURIComponent(url);
+            } else if (typeof url === 'string' && url.startsWith('/')) {
+              url = '${proxyBase}/api/proxy?url=' + encodeURIComponent('${metabaseBase}' + url);
+            }
+            return originalOpen.call(this, method, url, async, user, password);
+          };
+          
+          // Override Image constructor to intercept HTTP image requests
+          const originalImage = window.Image;
+          window.Image = function(width, height) {
+            const img = new originalImage(width, height);
+            const originalSrcSetter = Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, 'src').set;
+            Object.defineProperty(img, 'src', {
+              set: function(value) {
+                if (typeof value === 'string' && value.startsWith('http://')) {
+                  value = '${proxyBase}/api/proxy?url=' + encodeURIComponent(value);
+                } else if (typeof value === 'string' && value.startsWith('/')) {
+                  value = '${proxyBase}/api/proxy?url=' + encodeURIComponent('${metabaseBase}' + value);
+                }
+                originalSrcSetter.call(this, value);
+              },
+              get: function() {
+                return this.getAttribute('src');
+              }
+            });
+            return img;
+          };
+        })();
+      </script>`);
     
     // Set response headers
     res.setHeader('Content-Type', contentType);
