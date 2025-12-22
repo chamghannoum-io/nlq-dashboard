@@ -84,7 +84,29 @@ export default async function handler(req, res) {
     // Get content type
     const contentType = response.headers.get('content-type') || 'text/html';
     
-    // Get the HTML content
+    // Check if this is an asset file (CSS, JS, images, etc.) - pass through directly
+    const isAsset = contentType.includes('text/css') || 
+                    contentType.includes('application/javascript') ||
+                    contentType.includes('text/javascript') ||
+                    contentType.includes('image/') ||
+                    contentType.includes('font/') ||
+                    contentType.includes('application/json') ||
+                    urlObj.pathname.match(/\.(css|js|png|jpg|jpeg|gif|svg|woff|woff2|ttf|eot|json)$/i);
+    
+    if (isAsset) {
+      // For assets, pass through directly without modification
+      const content = await response.text();
+      
+      // Set response headers
+      res.setHeader('Content-Type', contentType);
+      res.setHeader('Cache-Control', 'public, max-age=31536000'); // Cache assets for 1 year
+      res.status(response.status);
+      
+      res.send(content);
+      return;
+    }
+    
+    // For HTML content, rewrite URLs
     const html = await response.text();
     
     // Get the base URL for the Metabase server (urlObj was already created above)
@@ -107,10 +129,10 @@ export default async function handler(req, res) {
         const absoluteUrl = `http:${url}`;
         return `${proxyBase}/api/proxy?url=${encodeURIComponent(absoluteUrl)}`;
       }
-      // For relative paths without leading slash, resolve against current path
+      // For relative paths without leading slash, resolve against Metabase root, not current path
       if (!url.includes('://') && !url.startsWith('data:') && !url.startsWith('blob:')) {
-        const currentPath = urlObj.pathname.substring(0, urlObj.pathname.lastIndexOf('/') + 1);
-        const absoluteUrl = `${metabaseBase}${currentPath}${url}`;
+        // Resolve relative to Metabase root, not current page
+        const absoluteUrl = `${metabaseBase}/${url}`;
         return `${proxyBase}/api/proxy?url=${encodeURIComponent(absoluteUrl)}`;
       }
       // Return as-is for data URLs, blob URLs, or already proxied URLs
@@ -147,7 +169,7 @@ export default async function handler(req, res) {
       })
       // Add base tag to help resolve relative URLs (but we'll still proxy them)
       .replace(/<head([^>]*)>/i, `<head$1><base href="${metabaseBase}/">`);
-
+    
     // Set response headers
     res.setHeader('Content-Type', contentType);
     res.setHeader('X-Frame-Options', 'ALLOWALL');
