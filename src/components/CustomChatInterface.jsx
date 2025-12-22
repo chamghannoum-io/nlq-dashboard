@@ -3,6 +3,7 @@ import { Send, Bot, User, Clock, Volume2, VolumeX, Sparkles, ChevronRight, Mic, 
 import { apiService } from '../services/apiService';
 import { fetchRandomQuestions, searchQuestions } from '../services/supabaseService';
 import { useSpeechRecognition } from '../hooks/useSpeechRecognition';
+import { convertToHttps } from '../utils/urlUtils';
 
 export default function CustomChatInterface({ sessionId, onMessageSent, onVisualizationData }) {
   const [messages, setMessages] = useState([
@@ -509,8 +510,10 @@ export default function CustomChatInterface({ sessionId, onMessageSent, onVisual
     const embedUrlAny = data.embedUrl || data.embed_url;
     if (embedUrlAny && onVisualizationData) {
       console.log('Updating visualization panel with (any type):', embedUrlAny);
+      // Convert HTTP to HTTPS to avoid mixed content errors
+      const httpsEmbedUrl = convertToHttps(embedUrlAny);
       onVisualizationData({
-        embedUrl: embedUrlAny,
+        embedUrl: httpsEmbedUrl,
         cardId: data.cardId || data.card_id,
         cardName: data.cardName || data.card_name,
         sqlQuery: data.sqlQuery || data.sql_query,

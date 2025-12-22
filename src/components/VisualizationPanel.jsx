@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { BarChart3 } from 'lucide-react';
+import { convertToHttps } from '../utils/urlUtils';
 
 export default function VisualizationPanel({ selectedItem, chatKey, visualizationData }) {
   const [embedUrl, setEmbedUrl] = useState(null);
@@ -23,7 +24,8 @@ export default function VisualizationPanel({ selectedItem, chatKey, visualizatio
       console.log('Selected item:', selectedItem);
       
       if (selectedItem.embed_url) {
-        setEmbedUrl(selectedItem.embed_url);
+        // Convert HTTP to HTTPS to avoid mixed content errors
+        setEmbedUrl(convertToHttps(selectedItem.embed_url));
         setCardTitle(selectedItem.card_name || selectedItem.question || 'Visualization');
         setCardInfo({
           type: selectedItem.visualization_type,
@@ -46,7 +48,8 @@ export default function VisualizationPanel({ selectedItem, chatKey, visualizatio
     
     if (visualizationData && visualizationData.embedUrl) {
       console.log('Received visualization data:', visualizationData);
-      setEmbedUrl(visualizationData.embedUrl);
+      // Convert HTTP to HTTPS to avoid mixed content errors
+      setEmbedUrl(convertToHttps(visualizationData.embedUrl));
       setCardTitle(visualizationData.cardName || 'Visualization');
       setCardInfo({
         type: visualizationData.visualization_type,

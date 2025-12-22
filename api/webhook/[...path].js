@@ -36,7 +36,9 @@ export default async function handler(req, res) {
     const path = req.query['...path'] || req.query.path;
     const webhookPath = Array.isArray(path) ? path.join('/') : path;
     
-    console.log('Webhook path:', webhookPath);
+    console.log('Raw path from query:', path);
+    console.log('Webhook path (joined):', webhookPath);
+    console.log('Is array?', Array.isArray(path));
     
     if (!webhookPath) {
       console.error('Missing webhook path in query:', req.query);
@@ -47,14 +49,28 @@ export default async function handler(req, res) {
     }
     
     // Check if path starts with "waiting/" to handle /webhook-waiting/ pattern
+    // Also handle if it's an array starting with "waiting"
     let targetUrl;
-    if (webhookPath.startsWith('waiting/')) {
-      // Remove "waiting/" prefix and use /webhook-waiting/ endpoint
-      const waitingPath = webhookPath.replace('waiting/', '');
+    const isWaitingPath = Array.isArray(path) 
+      ? path[0] === 'waiting'
+      : webhookPath.startsWith('waiting/');
+    
+    if (isWaitingPath) {
+      // Handle waiting path
+      let waitingPath;
+      if (Array.isArray(path)) {
+        // Remove first element "waiting" and join the rest
+        waitingPath = path.slice(1).join('/');
+      } else {
+        // Remove "waiting/" prefix
+        waitingPath = webhookPath.replace('waiting/', '');
+      }
       targetUrl = `${N8N_BASE_URL}/webhook-waiting/${waitingPath}`;
+      console.log('Detected waiting path, target URL:', targetUrl);
     } else {
       // Regular webhook endpoint
       targetUrl = `${N8N_BASE_URL}/webhook/${webhookPath}`;
+      console.log('Regular webhook path, target URL:', targetUrl);
     }
 
     // Forward query parameters (exclude the path parameter)
