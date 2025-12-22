@@ -6,7 +6,7 @@
 // Support both VITE_N8N_BASE_URL (for consistency) and N8N_BASE_URL
 const N8N_BASE_URL = process.env.VITE_N8N_BASE_URL || process.env.N8N_BASE_URL || 'https://n8n-test.iohealth.com';
 
-export default async function handler(req, res) {
+module.exports = async function handler(req, res) {
   // Set CORS headers first
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
