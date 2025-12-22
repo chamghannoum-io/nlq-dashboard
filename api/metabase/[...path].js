@@ -20,6 +20,9 @@ module.exports = async function handler(req, res) {
   }
 
   try {
+    // Metabase server configuration
+    const metabaseBase = 'http://139.185.56.253:3000';
+
     // Get the path from query params (Vercel uses "path" for [...path].js catch-all routes)
     // The path will be an array of path segments
     let metabasePath = '';
@@ -37,15 +40,15 @@ module.exports = async function handler(req, res) {
         metabasePath = match[1];
       }
     }
-    
+
     if (!metabasePath) {
       console.error('Missing path in query:', req.query);
-      return res.status(400).json({ 
+      return res.status(400).json({
         error: 'Missing path',
-        query: req.query 
+        query: req.query
       });
     }
-    
+
     // Get query string if any (exclude the path parameter)
     // Extract from original URL if present
     const originalUrl = req.url || '';
@@ -59,9 +62,8 @@ module.exports = async function handler(req, res) {
       params.delete('...path');
       queryString = params.toString();
     }
-    
+
     // Build full Metabase URL
-    const metabaseBase = 'http://139.185.56.253:3000';
     const targetUrl = queryString 
       ? `${metabaseBase}/${metabasePath}?${queryString}`
       : `${metabaseBase}/${metabasePath}`;
@@ -108,7 +110,6 @@ module.exports = async function handler(req, res) {
     const protocol = req.headers['x-forwarded-proto'] || 'https';
     const host = req.headers.host;
     const proxyBase = `${protocol}://${host}/api/metabase`;
-    const metabaseBase = 'http://139.185.56.253:3000';
 
     // Helper function to convert paths to proxy URLs
     const toProxyUrl = (path) => {

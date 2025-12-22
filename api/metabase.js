@@ -18,6 +18,9 @@ module.exports = async function handler(req, res) {
   }
 
   try {
+    // Metabase server configuration
+    const metabaseBase = 'http://139.185.56.253:3000';
+
     // Get the path from query parameter
     const pathParam = req.query.path;
 
@@ -37,7 +40,6 @@ module.exports = async function handler(req, res) {
     const queryString = params.toString();
 
     // Build full Metabase URL
-    const metabaseBase = 'http://139.185.56.253:3000';
     const targetUrl = queryString
       ? `${metabaseBase}/${metabasePath}?${queryString}`
       : `${metabaseBase}/${metabasePath}`;
@@ -85,7 +87,6 @@ module.exports = async function handler(req, res) {
     const protocol = req.headers['x-forwarded-proto'] || 'https';
     const host = req.headers.host;
     const proxyBase = `${protocol}://${host}/api/metabase`;
-    const metabaseBase = 'http://139.185.56.253:3000';
 
     // Helper function to convert paths to proxy URLs
     const toProxyUrl = (path) => {
