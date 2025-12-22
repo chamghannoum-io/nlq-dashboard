@@ -85,24 +85,135 @@ export default async function handler(req, res) {
     const protocol = req.headers['x-forwarded-proto'] || 'https';
     const host = req.headers.host;
     const proxyBase = `${protocol}://${host}/api/metabase`;
+    const metabaseBase = 'http://139.185.56.253:3000';
 
-    // Replace URLs in the content
+    // Helper function to convert paths to proxy URLs
+    const toProxyUrl = (path) => {
+      // Remove leading slash
+      const cleanPath = path.startsWith('/') ? path.substring(1) : path;
+      return `${proxyBase}?path=${encodeURIComponent(cleanPath)}`;
+    };
+
+    // Replace URLs in the content - COMPREHENSIVE REPLACEMENTS
     let modified = text
       // Replace absolute HTTP URLs to Metabase
       .replace(/http:\/\/139\.185\.56\.253:3000/g, proxyBase)
-      // Replace root-relative URLs
-      .replace(/(['"`(])\/app\//g, `$1${proxyBase}?path=app/`)
-      .replace(/(['"`(])\/public\//g, `$1${proxyBase}?path=public/`)
-      .replace(/(['"`(])\/api\//g, `$1${proxyBase}?path=api/`)
-      .replace(/(['"`(])\/static\//g, `$1${proxyBase}?path=static/`)
-      // Replace in src/href attributes
-      .replace(/src="\/([^"]+)"/g, `src="${proxyBase}?path=$1"`)
-      .replace(/href="\/([^"]+)"/g, (match, p) => {
-        if (p.startsWith('#') || p.startsWith('mailto:') || p.startsWith('javascript:')) {
+
+      // Replace src attributes (scripts, images, iframes)
+      .replace(/src=(["'])\/([^"']+)\1/gi, (match, quote, path) => {
+        return `src=${quote}${toProxyUrl('/' + path)}${quote}`;
+      })
+
+      // Replace href attributes (stylesheets, links)
+      .replace(/href=(["'])\/([^"'#][^"']*)\1/gi, (match, quote, path) => {
+        // Skip anchors and special protocols
+        if (path.startsWith('#') || path.startsWith('mailto:') || path.startsWith('javascript:') || path.startsWith('tel:')) {
           return match;
         }
-        return `href="${proxyBase}?path=${p}"`;
-      });
+        return `href=${quote}${toProxyUrl('/' + path)}${quote}`;
+      })
+
+      // Replace URLs in JavaScript strings (for dynamic loading)
+      .replace(/(["'`])\/app\/([^"'`]+)\1/g, (match, quote, path) => {
+        return `${quote}${toProxyUrl('/app/' + path)}${quote}`;
+      })
+      .replace(/(["'`])\/public\/([^"'`]+)\1/g, (match, quote, path) => {
+        return `${quote}${toProxyUrl('/public/' + path)}${quote}`;
+      })
+      .replace(/(["'`])\/api\/([^"'`]+)\1/g, (match, quote, path) => {
+        return `${quote}${toProxyUrl('/api/' + path)}${quote}`;
+      })
+      .replace(/(["'`])\/static\/([^"'`]+)\1/g, (match, quote, path) => {
+        return `${quote}${toProxyUrl('/static/' + path)}${quote}`;
+      })
+
+      // Replace CSS url() references
+      .replace(/url\((["']?)\/([^)"']+)\1\)/gi, (match, quote, path) => {
+        return `url(${quote}${toProxyUrl('/' + path)}${quote})`;
+      })
+
+      // Inject URL interceptor script in <head>
+      .replace(/<head([^>]*)>/i, `<head$1>
+        <base href="${metabaseBase}/">
+        <script>
+          (function() {
+            var proxyBase = '${proxyBase}';
+            var metabaseBase = '${metabaseBase}';
+
+            // Helper to convert URLs
+            function toProxyUrl(url) {
+              if (typeof url !== 'string') return url;
+
+              // Already proxied
+              if (url.includes('/api/metabase')) return url;
+
+              // Data/blob URLs
+              if (url.startsWith('data:') || url.startsWith('blob:')) return url;
+
+              // Absolute Metabase URLs
+              if (url.startsWith(metabaseBase)) {
+                var path = url.substring(metabaseBase.length);
+                return proxyBase + '?path=' + encodeURIComponent(path.startsWith('/') ? path.substring(1) : path);
+              }
+
+              // Root-relative URLs
+              if (url.startsWith('/')) {
+                return proxyBase + '?path=' + encodeURIComponent(url.substring(1));
+              }
+
+              // Already HTTPS or other protocol
+              return url;
+            }
+
+            // Override fetch
+            var originalFetch = window.fetch;
+            window.fetch = function(url, options) {
+              return originalFetch.call(this, toProxyUrl(url), options);
+            };
+
+            // Override XMLHttpRequest
+            var originalOpen = XMLHttpRequest.prototype.open;
+            XMLHttpRequest.prototype.open = function(method, url, async, user, password) {
+              return originalOpen.call(this, method, toProxyUrl(url), async, user, password);
+            };
+
+            // Override dynamic script creation
+            var originalCreateElement = document.createElement;
+            document.createElement = function(tagName) {
+              var element = originalCreateElement.call(document, tagName);
+
+              if (tagName.toLowerCase() === 'script' || tagName.toLowerCase() === 'link' || tagName.toLowerCase() === 'img') {
+                var srcDesc = Object.getOwnPropertyDescriptor(element.constructor.prototype, 'src');
+                var hrefDesc = Object.getOwnPropertyDescriptor(element.constructor.prototype, 'href');
+
+                if (srcDesc && srcDesc.set) {
+                  Object.defineProperty(element, 'src', {
+                    set: function(value) {
+                      srcDesc.set.call(this, toProxyUrl(value));
+                    },
+                    get: function() {
+                      return srcDesc.get.call(this);
+                    }
+                  });
+                }
+
+                if (hrefDesc && hrefDesc.set) {
+                  Object.defineProperty(element, 'href', {
+                    set: function(value) {
+                      hrefDesc.set.call(this, toProxyUrl(value));
+                    },
+                    get: function() {
+                      return hrefDesc.get.call(this);
+                    }
+                  });
+                }
+              }
+
+              return element;
+            };
+          })();
+        </script>
+      `);
 
     // Set response headers
     res.setHeader('Content-Type', contentType);
