@@ -14,19 +14,38 @@ export function convertToHttps(url) {
     return url;
   }
 
-  // For HTTP Metabase URLs, convert to path-based proxy
+  // For HTTP Metabase URLs, convert to query-parameter proxy
   if (url.startsWith('http://139.185.56.253:3000')) {
-    // Extract the path and hash/fragment
+    // Extract the path and query parameters
     try {
       const urlObj = new URL(url);
-      const path = urlObj.pathname;
-      const hash = urlObj.hash;
+      const path = urlObj.pathname.replace(/^\//, ''); // Remove leading slash
       const search = urlObj.search;
-      // Convert to proxy path: /api/metabase/public/question/...
-      return `/api/metabase${path}${search}${hash}`;
+      const hash = urlObj.hash;
+
+      // Build the proxy URL with query parameter
+      // Format: /api/metabase?path=public/question/...
+      let proxyUrl = `/api/metabase?path=${encodeURIComponent(path)}`;
+
+      // Add any query parameters from the original URL
+      if (search) {
+        const params = new URLSearchParams(search);
+        params.forEach((value, key) => {
+          proxyUrl += `&${encodeURIComponent(key)}=${encodeURIComponent(value)}`;
+        });
+      }
+
+      // Add hash/fragment
+      if (hash) {
+        proxyUrl += hash;
+      }
+
+      return proxyUrl;
     } catch (e) {
-      // If URL parsing fails, try simple string replacement
-      return url.replace('http://139.185.56.253:3000', '/api/metabase');
+      console.error('Error parsing Metabase URL:', e);
+      // Fallback: try simple conversion
+      const path = url.replace('http://139.185.56.253:3000/', '');
+      return `/api/metabase?path=${encodeURIComponent(path)}`;
     }
   }
 
