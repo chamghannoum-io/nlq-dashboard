@@ -84,38 +84,14 @@ export default async function handler(req, res) {
     // Get content type
     const contentType = response.headers.get('content-type') || 'text/html';
     
-    // Check if this is an asset file (CSS, JS, images, etc.) - pass through directly
-    const isAsset = contentType.includes('text/css') || 
-                    contentType.includes('application/javascript') ||
-                    contentType.includes('text/javascript') ||
-                    contentType.includes('image/') ||
-                    contentType.includes('font/') ||
-                    contentType.includes('application/json') ||
-                    urlObj.pathname.match(/\.(css|js|png|jpg|jpeg|gif|svg|woff|woff2|ttf|eot|json)$/i);
-    
-    if (isAsset) {
-      // For assets, pass through directly without modification
-      const content = await response.text();
-      
-      // Set response headers
-      res.setHeader('Content-Type', contentType);
-      res.setHeader('Cache-Control', 'public, max-age=31536000'); // Cache assets for 1 year
-      res.status(response.status);
-      
-      res.send(content);
-      return;
-    }
-    
-    // For HTML content, rewrite URLs
-    const html = await response.text();
-    
     // Get the base URL for the Metabase server (urlObj was already created above)
+    // Declare these once at the top level
     const metabaseBase = `${urlObj.protocol}//${urlObj.host}`; // http://139.185.56.253:3000
     const proxyBase = `${req.headers['x-forwarded-proto'] || 'https'}://${req.headers.host}`;
     
-    // Helper function to convert a URL (absolute or relative) to a proxied URL
+    // Helper function to convert HTTP URLs to proxy URLs
     const toProxyUrl = (url) => {
-      // If it's already an absolute HTTP URL, proxy it directly
+      // If it's already an absolute HTTP URL, proxy it
       if (url.startsWith('http://')) {
         return `${proxyBase}/api/proxy?url=${encodeURIComponent(url)}`;
       }
@@ -129,16 +105,123 @@ export default async function handler(req, res) {
         const absoluteUrl = `http:${url}`;
         return `${proxyBase}/api/proxy?url=${encodeURIComponent(absoluteUrl)}`;
       }
-      // For relative paths without leading slash, resolve against Metabase root, not current path
-      if (!url.includes('://') && !url.startsWith('data:') && !url.startsWith('blob:')) {
-        // Resolve relative to Metabase root, not current page
-        const absoluteUrl = `${metabaseBase}/${url}`;
-        return `${proxyBase}/api/proxy?url=${encodeURIComponent(absoluteUrl)}`;
-      }
       // Return as-is for data URLs, blob URLs, or already proxied URLs
       return url;
     };
     
+    // Check if this is an asset file that needs URL rewriting
+    const isJavaScript = contentType.includes('application/javascript') ||
+                         contentType.includes('text/javascript') ||
+                         urlObj.pathname.match(/\.js$/i);
+    
+    const isCSS = contentType.includes('text/css') ||
+                   urlObj.pathname.match(/\.css$/i);
+    
+    const isBinaryAsset = contentType.includes('image/') ||
+                          contentType.includes('font/') ||
+                          urlObj.pathname.match(/\.(png|jpg|jpeg|gif|svg|woff|woff2|ttf|eot|ico)$/i);
+    
+    // For binary assets (images, fonts), pass through directly
+    if (isBinaryAsset) {
+      const content = await response.arrayBuffer();
+      
+      res.setHeader('Content-Type', contentType);
+      res.setHeader('Cache-Control', 'public, max-age=31536000');
+      res.status(response.status);
+      
+      res.send(Buffer.from(content));
+      return;
+    }
+    
+    // For JavaScript files, rewrite HTTP URLs to proxy URLs
+    if (isJavaScript) {
+      const jsContent = await response.text();
+      
+      // Replace HTTP URLs in JavaScript code
+      // Handle various patterns: strings, template literals, fetch, XMLHttpRequest
+      let modifiedJs = jsContent
+        // Replace http:// URLs in double-quoted strings
+        .replace(/"http:\/\/([^"]+)"/g, (match, url) => {
+          return `"${toProxyUrl(`http://${url}`)}"`;
+        })
+        // Replace http:// URLs in single-quoted strings
+        .replace(/'http:\/\/([^']+)'/g, (match, url) => {
+          return `'${toProxyUrl(`http://${url}`)}'`;
+        })
+        // Replace http:// URLs in template literals (backticks)
+        .replace(/`http:\/\/([^`]+)`/g, (match, url) => {
+          return `\`${toProxyUrl(`http://${url}`)}\``;
+        })
+        // Replace relative URLs starting with /api/ or /app/ in strings
+        .replace(/"(\/api\/[^"]+)"/g, (match, url) => {
+          return `"${toProxyUrl(url)}"`;
+        })
+        .replace(/"(\/app\/[^"]+)"/g, (match, url) => {
+          return `"${toProxyUrl(url)}"`;
+        })
+        .replace(/'(\/api\/[^']+)'/g, (match, url) => {
+          return `'${toProxyUrl(url)}'`;
+        })
+        .replace(/'(\/app\/[^']+)'/g, (match, url) => {
+          return `'${toProxyUrl(url)}'`;
+        })
+        // Replace in template literals
+        .replace(/`(\/api\/[^`]+)`/g, (match, url) => {
+          return `\`${toProxyUrl(url)}\``;
+        })
+        .replace(/`(\/app\/[^`]+)`/g, (match, url) => {
+          return `\`${toProxyUrl(url)}\``;
+        })
+        // Replace fetch() calls with HTTP URLs
+        .replace(/fetch\s*\(\s*["']http:\/\/([^"']+)["']/g, (match, url) => {
+          return `fetch("${toProxyUrl(`http://${url}`)}"`;
+        })
+        // Replace XMLHttpRequest.open() calls
+        .replace(/\.open\s*\(\s*["'](GET|POST|PUT|DELETE|PATCH)["']\s*,\s*["']http:\/\/([^"']+)["']/g, (match, method, url) => {
+          return `.open("${method}", "${toProxyUrl(`http://${url}`)}"`;
+        })
+        // Replace base URL patterns (common in Metabase)
+        .replace(/(["'])http:\/\/139\.185\.56\.253:3000([^"']*)\1/g, (match, quote, path) => {
+          return `${quote}${toProxyUrl(`http://139.185.56.253:3000${path}`)}${quote}`;
+        });
+      
+      res.setHeader('Content-Type', contentType);
+      res.setHeader('Cache-Control', 'public, max-age=31536000');
+      res.status(response.status);
+      
+      res.send(modifiedJs);
+      return;
+    }
+    
+    // For CSS files, rewrite HTTP URLs to proxy URLs
+    if (isCSS) {
+      const cssContent = await response.text();
+      
+      // Replace HTTP URLs in CSS
+      let modifiedCSS = cssContent
+        .replace(/url\((['"]?)(http:\/\/[^'")]+)\1\)/g, (match, quote, url) => {
+          return `url(${quote}${toProxyUrl(url)}${quote})`;
+        })
+        .replace(/url\((['"]?)(\/[^'")]+)\1\)/g, (match, quote, url) => {
+          // Only proxy if it looks like an asset path
+          if (url.match(/^\/(app|api|static|assets)/)) {
+            return `url(${quote}${toProxyUrl(url)}${quote})`;
+          }
+          return match;
+        });
+      
+      res.setHeader('Content-Type', contentType);
+      res.setHeader('Cache-Control', 'public, max-age=31536000');
+      res.status(response.status);
+      
+      res.send(modifiedCSS);
+      return;
+    }
+    
+    // For HTML content, rewrite URLs
+    const html = await response.text();
+    
+    // Variables metabaseBase, proxyBase, and toProxyUrl are already declared above
     // Replace all URLs in the HTML with proxied URLs
     let modifiedHtml = html
       // Replace src="..." (handles both absolute and relative)
