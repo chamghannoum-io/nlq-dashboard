@@ -571,25 +571,33 @@ export default function CustomChatInterface({ sessionId, onMessageSent, onVisual
 
   // Check if response is waiting for user input based on waitType field
   const isWaitingForUserInput = (data) => {
+    console.log('isWaitingForUserInput called with data:', data);
+    
     // Check for explicit waitType field
     if (data.waitType) {
+      console.log(`Found waitType: "${data.waitType}", returning ${data.waitType === 'interactive'}`);
       // "interactive" means wait for user input
       // "automatic" means continue automatically
       return data.waitType === 'interactive';
     }
     
+    console.log('No waitType field found, using fallback logic');
+    
     // Fallback to old behavior if waitType is not present
     // If there are actions, it's definitely waiting for user input
     if (data.actions && Array.isArray(data.actions) && data.actions.length > 0) {
+      console.log('Found actions array, returning true');
       return true;
     }
     
     // If there's a message, chart, table, or embed - it's showing content and might be waiting for response
     if (data.message || data.chart || data.table || data.embedUrl || data.embed_url) {
+      console.log('Found message/chart/table/embed, returning true');
       return true;
     }
     
     // If it's just a placeholder or empty response, don't wait
+    console.log('No indicators found, returning false');
     return false;
   };
 
@@ -652,6 +660,7 @@ export default function CustomChatInterface({ sessionId, onMessageSent, onVisual
       const reader = response.body?.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
+      let accumulatedResponseData = {}; // Accumulate all response fields across chunks
 
       if (reader) {
         // Handle streaming response
@@ -672,6 +681,9 @@ export default function CustomChatInterface({ sessionId, onMessageSent, onVisual
               try {
                 const data = JSON.parse(line);
                 console.log('Resume URL response data:', data);
+
+                // Accumulate all fields from this chunk (especially waitType)
+                accumulatedResponseData = { ...accumulatedResponseData, ...data };
 
                 // Check if this is a placeholder response that needs retry
                 if (isPlaceholderResponse(data)) {
@@ -705,9 +717,11 @@ export default function CustomChatInterface({ sessionId, onMessageSent, onVisual
                 const nextResumeUrl = data.resumeUrl || data.resume_url;
                 if (nextResumeUrl) {
                   console.log('Found next resumeUrl:', nextResumeUrl);
+                  console.log('Accumulated response data:', accumulatedResponseData);
 
                   // If response is waiting for user input (has actions or content), store resumeUrl
-                  if (isWaitingForUserInput(data)) {
+                  // Use accumulatedResponseData to check waitType (it may be in a different chunk than resumeUrl)
+                  if (isWaitingForUserInput(accumulatedResponseData)) {
                     console.log('Storing resumeUrl - waiting for user input');
                     setCurrentResumeUrl(nextResumeUrl);
                     hasPendingResumeUrl = true;
@@ -753,6 +767,9 @@ export default function CustomChatInterface({ sessionId, onMessageSent, onVisual
             const data = JSON.parse(buffer);
             console.log('Resume URL buffer data:', data);
 
+            // Accumulate all fields from buffer chunk
+            accumulatedResponseData = { ...accumulatedResponseData, ...data };
+
             // Check if this is a placeholder response that needs retry
             if (isPlaceholderResponse(data)) {
               if (retryCount < maxRetries) {
@@ -784,7 +801,10 @@ export default function CustomChatInterface({ sessionId, onMessageSent, onVisual
 
             const nextResumeUrl = data.resumeUrl || data.resume_url;
             if (nextResumeUrl) {
-              if (isWaitingForUserInput(data)) {
+              console.log('Found next resumeUrl in buffer:', nextResumeUrl);
+              console.log('Accumulated response data:', accumulatedResponseData);
+              // Use accumulatedResponseData to check waitType (it may be in a different chunk than resumeUrl)
+              if (isWaitingForUserInput(accumulatedResponseData)) {
                 setCurrentResumeUrl(nextResumeUrl);
                 hasPendingResumeUrl = true;
                 // If in voice mode and we have collected text, speak it
@@ -853,6 +873,9 @@ export default function CustomChatInterface({ sessionId, onMessageSent, onVisual
 
           const nextResumeUrl = data.resumeUrl || data.resume_url;
           if (nextResumeUrl) {
+            console.log('Found next resumeUrl in non-streaming response:', nextResumeUrl);
+            console.log('Response data:', data);
+            // For non-streaming, the data is complete
             if (isWaitingForUserInput(data)) {
               setCurrentResumeUrl(nextResumeUrl);
               hasPendingResumeUrl = true;
@@ -940,6 +963,7 @@ export default function CustomChatInterface({ sessionId, onMessageSent, onVisual
       let buffer = '';
       let firstResumeUrl = null;
       let lastResponseData = null;
+      let accumulatedResponseData = {}; // Accumulate all response fields across chunks
       let voiceModeResponseText = '';
 
       console.log('Initial webhook response received');
@@ -963,6 +987,9 @@ export default function CustomChatInterface({ sessionId, onMessageSent, onVisual
               try {
                 const data = JSON.parse(line);
                 console.log('Initial webhook response data:', data);
+
+                // Accumulate all fields from this chunk (especially waitType)
+                accumulatedResponseData = { ...accumulatedResponseData, ...data };
 
                 // Process this response
                 processResponse(data);
@@ -993,6 +1020,10 @@ export default function CustomChatInterface({ sessionId, onMessageSent, onVisual
           try {
             const data = JSON.parse(buffer);
             console.log('Initial webhook buffer data:', data);
+            
+            // Accumulate all fields from buffer chunk
+            accumulatedResponseData = { ...accumulatedResponseData, ...data };
+            
             processResponse(data);
 
             if (voiceMode) {
@@ -1018,6 +1049,7 @@ export default function CustomChatInterface({ sessionId, onMessageSent, onVisual
 
         try {
           const data = JSON.parse(responseText);
+          accumulatedResponseData = data; // For non-streaming, the data is complete
           processResponse(data);
 
           if (voiceMode) {
@@ -1038,10 +1070,12 @@ export default function CustomChatInterface({ sessionId, onMessageSent, onVisual
       }
 
       // If we got a resumeUrl, check waitType to determine next action
-      if (firstResumeUrl && lastResponseData) {
+      // Use accumulatedResponseData to check waitType (it may be in a different chunk than resumeUrl)
+      if (firstResumeUrl) {
         console.log('Checking waitType for resumeUrl:', firstResumeUrl);
+        console.log('Accumulated response data:', accumulatedResponseData);
         
-        if (isWaitingForUserInput(lastResponseData)) {
+        if (isWaitingForUserInput(accumulatedResponseData)) {
           console.log('WaitType is interactive - storing resumeUrl for user action');
           setCurrentResumeUrl(firstResumeUrl);
           // In voice mode, if we have response text, speak it
