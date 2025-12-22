@@ -621,9 +621,9 @@ export default function CustomChatInterface({ sessionId, onMessageSent, onVisual
 
       console.log('Resume URL response status:', response.status);
 
-      // Handle 409 Conflict - resume URL already consumed
+      // Handle 409 Conflict - resume URL already consumed (expected behavior)
       if (response.status === 409) {
-        console.log('Resume URL already consumed (409), ending workflow');
+        // Silently handle - this is expected when a resume URL is consumed
         isProcessingWorkflowRef.current = false;
         // If in voice mode and we have collected text, speak it
         if (voiceMode && voiceModeResponseText.trim()) {
@@ -1298,7 +1298,7 @@ export default function CustomChatInterface({ sessionId, onMessageSent, onVisual
             {voiceState === 'processing' && (
               <div className="relative w-48 h-48 flex items-center justify-center">
                 <div className="absolute inset-0 rounded-full border-8 border-slate-600 border-t-blue-500 animate-spin"></div>
-                <div className="absolute inset-8 rounded-full border-8 border-slate-700 border-t-blue-400 animate-spin" style={{ animationDirection: 'reverse', animationDuration: '1.5s' }}></div>
+                <div className="absolute inset-8 rounded-full border-8 border-slate-700 border-t-blue-400 animate-spin-reverse"></div>
                 <div className="relative w-24 h-24 rounded-full bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center shadow-xl">
                   <Bot className="w-12 h-12 text-white" />
                 </div>
@@ -1313,11 +1313,7 @@ export default function CustomChatInterface({ sessionId, onMessageSent, onVisual
                   {[0, 1, 2, 3, 4].map((i) => (
                     <div
                       key={i}
-                      className="w-3 bg-blue-500 rounded-full voice-wave-bar"
-                      style={{
-                        height: `${30 + (i % 3) * 20}%`,
-                        animationDelay: `${i * 0.15}s`
-                      }}
+                      className={`w-3 bg-blue-500 rounded-full voice-wave-bar voice-wave-bar-${i}`}
                     ></div>
                   ))}
                 </div>
@@ -1517,9 +1513,9 @@ export default function CustomChatInterface({ sessionId, onMessageSent, onVisual
                   </div>
                   <div className="bg-gradient-to-br from-slate-700/60 to-slate-700/40 backdrop-blur-md rounded-3xl rounded-tl-md px-6 py-5 shadow-2xl border border-slate-600/50">
                     <div className="flex items-center gap-2">
-                      <div className="w-3 h-3 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
-                      <div className="w-3 h-3 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
-                      <div className="w-3 h-3 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
+                      <div className="w-3 h-3 bg-blue-400 rounded-full animate-bounce typing-dot-1"></div>
+                      <div className="w-3 h-3 bg-blue-400 rounded-full animate-bounce typing-dot-2"></div>
+                      <div className="w-3 h-3 bg-blue-400 rounded-full animate-bounce typing-dot-3"></div>
                     </div>
                   </div>
                 </div>
@@ -1581,11 +1577,7 @@ export default function CustomChatInterface({ sessionId, onMessageSent, onVisual
                 isListening 
                   ? 'border-red-500/50 ring-2 ring-red-500/20' 
                   : 'border-slate-600/50'
-              } text-white placeholder-slate-400 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50 text-sm transition-all duration-200 shadow-xl`}
-              style={{
-                minHeight: '60px',
-                maxHeight: '120px'
-              }}
+              } text-white placeholder-slate-400 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50 text-sm transition-all duration-200 shadow-xl chat-textarea`}
               disabled={isLoading || isListening}
             />
             

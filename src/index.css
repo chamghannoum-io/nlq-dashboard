@@ -100,9 +100,67 @@
   }
 }
 
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 /* Voice mode sound wave bars */
 .voice-wave-bar {
   animation: wave 1s ease-in-out infinite;
+}
+
+.voice-wave-bar-0 {
+  height: 30%;
+  animation-delay: 0s;
+}
+
+.voice-wave-bar-1 {
+  height: 50%;
+  animation-delay: 0.15s;
+}
+
+.voice-wave-bar-2 {
+  height: 70%;
+  animation-delay: 0.3s;
+}
+
+.voice-wave-bar-3 {
+  height: 50%;
+  animation-delay: 0.45s;
+}
+
+.voice-wave-bar-4 {
+  height: 30%;
+  animation-delay: 0.6s;
+}
+
+/* Reverse spin animation for processing state */
+.animate-spin-reverse {
+  animation: spin 1.5s linear infinite reverse;
+}
+
+/* Typing indicator dots with delays */
+.typing-dot-1 {
+  animation-delay: 0ms;
+}
+
+.typing-dot-2 {
+  animation-delay: 150ms;
+}
+
+.typing-dot-3 {
+  animation-delay: 300ms;
+}
+
+/* Textarea sizing */
+.chat-textarea {
+  min-height: 60px;
+  max-height: 120px;
 }
 
 .animate-slide-in {

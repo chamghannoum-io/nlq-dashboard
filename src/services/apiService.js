@@ -1,5 +1,18 @@
-const HISTORY_URL = '/webhook/chat-history';
-const CHAT_WEBHOOK_URL = '/webhook/nlq-chat';
+// Get the n8n base URL from environment variable or use relative path for dev proxy
+const N8N_BASE_URL = import.meta.env.VITE_N8N_BASE_URL || '';
+// In development, use relative paths (proxied by Vite)
+// In production, use full URLs from environment variable
+const getWebhookUrl = (path) => {
+  if (N8N_BASE_URL) {
+    // Production: use full URL
+    return `${N8N_BASE_URL}${path}`;
+  }
+  // Development: use relative path (will be proxied by Vite)
+  return path;
+};
+
+const HISTORY_URL = getWebhookUrl('/webhook/chat-history');
+const CHAT_WEBHOOK_URL = getWebhookUrl('/webhook/nlq-chat');
 
 export const apiService = {
   async loadHistory() {
