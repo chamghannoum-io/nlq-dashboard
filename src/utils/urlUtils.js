@@ -1,7 +1,8 @@
 /**
- * Convert HTTP URLs to HTTPS to avoid mixed content errors
+ * Convert HTTP URLs to use proxy to avoid mixed content errors
+ * For iframes, we need to use a proxy since browsers block HTTP iframes in HTTPS pages
  * @param {string} url - The URL to convert
- * @returns {string} - The URL with HTTPS protocol
+ * @returns {string} - The proxied URL or original if already HTTPS
  */
 export function convertToHttps(url) {
   if (!url || typeof url !== 'string') {
@@ -13,9 +14,12 @@ export function convertToHttps(url) {
     return url;
   }
 
-  // Convert HTTP to HTTPS
+  // For HTTP URLs, use the proxy endpoint
+  // Note: This requires the Metabase server to be accessible from Vercel
   if (url.startsWith('http://')) {
-    return url.replace('http://', 'https://');
+    // Encode the URL for use as a query parameter
+    const encodedUrl = encodeURIComponent(url);
+    return `/api/proxy?url=${encodedUrl}`;
   }
 
   // If no protocol, assume HTTPS for absolute URLs

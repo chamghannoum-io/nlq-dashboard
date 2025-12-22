@@ -48,12 +48,14 @@ export default async function handler(req, res) {
       });
     }
     
-    // Check if path starts with "waiting/" to handle /webhook-waiting/ pattern
-    // Also handle if it's an array starting with "waiting"
+    // Check if path starts with "waiting" to handle /webhook-waiting/ pattern
+    // Handle both array format ["waiting", "764238"] and string format "waiting/764238"
     let targetUrl;
+    
+    // Check if it's a waiting path
     const isWaitingPath = Array.isArray(path) 
-      ? path[0] === 'waiting'
-      : webhookPath.startsWith('waiting/');
+      ? path.length > 0 && path[0] === 'waiting'
+      : typeof webhookPath === 'string' && (webhookPath.startsWith('waiting/') || webhookPath === 'waiting');
     
     if (isWaitingPath) {
       // Handle waiting path
@@ -62,9 +64,14 @@ export default async function handler(req, res) {
         // Remove first element "waiting" and join the rest
         waitingPath = path.slice(1).join('/');
       } else {
-        // Remove "waiting/" prefix
-        waitingPath = webhookPath.replace('waiting/', '');
+        // Remove "waiting/" prefix or handle if it's just "waiting"
+        waitingPath = webhookPath === 'waiting' ? '' : webhookPath.replace(/^waiting\/?/, '');
       }
+      
+      if (!waitingPath) {
+        return res.status(400).json({ error: 'Missing waiting path ID' });
+      }
+      
       targetUrl = `${N8N_BASE_URL}/webhook-waiting/${waitingPath}`;
       console.log('Detected waiting path, target URL:', targetUrl);
     } else {
