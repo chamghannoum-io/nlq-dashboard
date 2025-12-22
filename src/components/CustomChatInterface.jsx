@@ -611,7 +611,11 @@ export default function CustomChatInterface({ sessionId, onMessageSent, onVisual
 
       console.log('Resume URL request body:', requestBody);
 
-      const response = await fetch(resumeUrl, {
+      // Convert n8n URL to proxy URL if needed (for CORS)
+      const proxiedResumeUrl = apiService.convertN8nUrlToProxy(resumeUrl);
+      console.log('Proxied resume URL:', proxiedResumeUrl);
+
+      const response = await fetch(proxiedResumeUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'

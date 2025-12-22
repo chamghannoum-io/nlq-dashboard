@@ -1,14 +1,49 @@
-// Get the n8n base URL from environment variable or use relative path for dev proxy
-const N8N_BASE_URL = import.meta.env.VITE_N8N_BASE_URL || '';
 // In development, use relative paths (proxied by Vite)
-// In production, use full URLs from environment variable
+// In production, use Vercel API proxy to avoid CORS issues
+const isDevelopment = import.meta.env.DEV;
+const N8N_BASE_URL = import.meta.env.VITE_N8N_BASE_URL || 'https://n8n-test.iohealth.com';
+
 const getWebhookUrl = (path) => {
-  if (N8N_BASE_URL) {
-    // Production: use full URL
-    return `${N8N_BASE_URL}${path}`;
+  if (isDevelopment) {
+    // Development: use relative path (will be proxied by Vite)
+    return path;
   }
-  // Development: use relative path (will be proxied by Vite)
-  return path;
+  // Production: use Vercel API proxy (avoids CORS issues)
+  // Remove /webhook prefix since the proxy adds it
+  const pathWithoutWebhook = path.replace('/webhook/', '');
+  return `/api/webhook/${pathWithoutWebhook}`;
+};
+
+// Convert full n8n URLs to proxy URLs in production
+const convertN8nUrlToProxy = (url) => {
+  if (!url || typeof url !== 'string') return url;
+  
+  // If it's already a relative path, return as is
+  if (url.startsWith('/')) return url;
+  
+  // If it's a full n8n URL, convert to proxy URL in production
+  if (url.includes(N8N_BASE_URL)) {
+    if (isDevelopment) {
+      // In development, convert to relative path for Vite proxy
+      const urlObj = new URL(url);
+      return urlObj.pathname + urlObj.search;
+    } else {
+      // In production, convert to Vercel API proxy
+      const urlObj = new URL(url);
+      const path = urlObj.pathname;
+      // Handle both /webhook/... and /webhook-waiting/... patterns
+      if (path.startsWith('/webhook/')) {
+        const pathWithoutWebhook = path.replace('/webhook/', '');
+        return `/api/webhook/${pathWithoutWebhook}${urlObj.search}`;
+      } else if (path.startsWith('/webhook-waiting/')) {
+        const pathWithoutWebhook = path.replace('/webhook-waiting/', '');
+        return `/api/webhook/waiting/${pathWithoutWebhook}${urlObj.search}`;
+      }
+    }
+  }
+  
+  // Return original URL if it doesn't match n8n pattern
+  return url;
 };
 
 const HISTORY_URL = getWebhookUrl('/webhook/chat-history');
@@ -58,7 +93,10 @@ export const apiService = {
   },
 
   async sendMessageToResumeUrl(resumeUrl, message, sessionId, signal) {
-    const response = await fetch(resumeUrl, {
+    // Convert n8n URL to proxy URL if needed
+    const proxiedUrl = convertN8nUrlToProxy(resumeUrl);
+    
+    const response = await fetch(proxiedUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -76,5 +114,8 @@ export const apiService = {
     }
     
     return response;
-  }
+  },
+  
+  // Export the conversion function for use in CustomChatInterface
+  convertN8nUrlToProxy
 };
