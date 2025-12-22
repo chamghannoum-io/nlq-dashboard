@@ -223,32 +223,61 @@ export default async function handler(req, res) {
     
     // Variables metabaseBase, proxyBase, and toProxyUrl are already declared above
     // Replace all URLs in the HTML with proxied URLs
+    // Use more comprehensive regex patterns to catch all cases
     let modifiedHtml = html
-      // Replace src="..." (handles both absolute and relative)
-      .replace(/src="([^"]+)"/g, (match, url) => {
-        return `src="${toProxyUrl(url)}"`;
+      // Replace src="..." or src='...' in script tags (most important for JS files)
+      .replace(/(<script[^>]*\ssrc=)(["'])([^"']+)(\2)/gi, (match, prefix, quote, url, suffix) => {
+        return `${prefix}${quote}${toProxyUrl(url)}${quote}`;
       })
-      // Replace href="..." (handles both absolute and relative)
-      .replace(/href="([^"]+)"/g, (match, url) => {
-        // Don't proxy anchor links, mailto, tel, etc.
+      // Replace href="..." or href='...' in link tags (for CSS stylesheets)
+      .replace(/(<link[^>]*\shref=)(["'])([^"']+)(\2)/gi, (match, prefix, quote, url, suffix) => {
+        // Don't proxy special URLs
         if (url.startsWith('#') || url.startsWith('mailto:') || url.startsWith('tel:') || url.startsWith('javascript:')) {
           return match;
         }
-        return `href="${toProxyUrl(url)}"`;
+        return `${prefix}${quote}${toProxyUrl(url)}${quote}`;
       })
-      // Replace action="..." (handles both absolute and relative)
-      .replace(/action="([^"]+)"/g, (match, url) => {
-        return `action="${toProxyUrl(url)}"`;
+      // Replace src="..." or src='...' in img tags
+      .replace(/(<img[^>]*\ssrc=)(["'])([^"']+)(\2)/gi, (match, prefix, quote, url, suffix) => {
+        return `${prefix}${quote}${toProxyUrl(url)}${quote}`;
       })
-      // Replace background-image: url(...) (handles both absolute and relative)
+      // Replace src="..." or src='...' in iframe tags
+      .replace(/(<iframe[^>]*\ssrc=)(["'])([^"']+)(\2)/gi, (match, prefix, quote, url, suffix) => {
+        return `${prefix}${quote}${toProxyUrl(url)}${quote}`;
+      })
+      // Replace href="..." or href='...' in anchor tags
+      .replace(/(<a[^>]*\shref=)(["'])([^"']+)(\2)/gi, (match, prefix, quote, url, suffix) => {
+        // Don't proxy special URLs
+        if (url.startsWith('#') || url.startsWith('mailto:') || url.startsWith('tel:') || url.startsWith('javascript:')) {
+          return match;
+        }
+        return `${prefix}${quote}${toProxyUrl(url)}${quote}`;
+      })
+      // Replace action="..." or action='...' in form tags
+      .replace(/(<form[^>]*\saction=)(["'])([^"']+)(\2)/gi, (match, prefix, quote, url, suffix) => {
+        return `${prefix}${quote}${toProxyUrl(url)}${quote}`;
+      })
+      // Replace background-image: url(...) in style attributes and style tags
       .replace(/url\((['"]?)([^'")]+)\1\)/g, (match, quote, url) => {
+        // Skip data URLs and blob URLs
+        if (url.startsWith('data:') || url.startsWith('blob:')) {
+          return match;
+        }
         return `url(${quote}${toProxyUrl(url)}${quote})`;
       })
-      // Replace in style attributes
-      .replace(/style="([^"]*)"/g, (match, style) => {
-        return `style="${style.replace(/url\((['"]?)([^'")]+)\1\)/g, (m, q, url) => {
+      // Replace in inline style attributes
+      .replace(/style=(["'])([^"']*)\1/g, (match, quote, style) => {
+        return `style=${quote}${style.replace(/url\((['"]?)([^'")]+)\1\)/g, (m, q, url) => {
+          if (url.startsWith('data:') || url.startsWith('blob:')) {
+            return m;
+          }
           return `url(${q}${toProxyUrl(url)}${q})`;
-        })}"`;
+        })}${quote}`;
+      })
+      // Catch-all: Replace any remaining HTTP URLs in attribute values
+      // This catches URLs that might not have been caught by the specific patterns above
+      .replace(/(\s)(src|href|action)=(["'])(http:\/\/[^"']+)(\3)/gi, (match, space, attr, quote, url, endQuote) => {
+        return `${space}${attr}=${quote}${toProxyUrl(url)}${endQuote}`;
       })
       // Add base tag to help resolve relative URLs (but we'll still proxy them)
       .replace(/<head([^>]*)>/i, `<head$1><base href="${metabaseBase}/">`);
