@@ -87,40 +87,66 @@ export default async function handler(req, res) {
     // Get the HTML content
     const html = await response.text();
     
-    // Modify the HTML to rewrite all HTTP URLs to use our proxy
-    // This ensures all resources (CSS, JS, images) also go through the proxy
-    const baseUrl = decodedUrl.split('/').slice(0, 3).join('/'); // Get http://domain:port
+    // Get the base URL for the Metabase server (urlObj was already created above)
+    const metabaseBase = `${urlObj.protocol}//${urlObj.host}`; // http://139.185.56.253:3000
     const proxyBase = `${req.headers['x-forwarded-proto'] || 'https'}://${req.headers.host}`;
     
-    // Replace all HTTP URLs in the HTML with proxy URLs
+    // Helper function to convert a URL (absolute or relative) to a proxied URL
+    const toProxyUrl = (url) => {
+      // If it's already an absolute HTTP URL, proxy it directly
+      if (url.startsWith('http://')) {
+        return `${proxyBase}/api/proxy?url=${encodeURIComponent(url)}`;
+      }
+      // If it's a relative URL (starts with /), make it absolute first
+      if (url.startsWith('/')) {
+        const absoluteUrl = `${metabaseBase}${url}`;
+        return `${proxyBase}/api/proxy?url=${encodeURIComponent(absoluteUrl)}`;
+      }
+      // If it's a protocol-relative URL (starts with //), add http:
+      if (url.startsWith('//')) {
+        const absoluteUrl = `http:${url}`;
+        return `${proxyBase}/api/proxy?url=${encodeURIComponent(absoluteUrl)}`;
+      }
+      // For relative paths without leading slash, resolve against current path
+      if (!url.includes('://') && !url.startsWith('data:') && !url.startsWith('blob:')) {
+        const currentPath = urlObj.pathname.substring(0, urlObj.pathname.lastIndexOf('/') + 1);
+        const absoluteUrl = `${metabaseBase}${currentPath}${url}`;
+        return `${proxyBase}/api/proxy?url=${encodeURIComponent(absoluteUrl)}`;
+      }
+      // Return as-is for data URLs, blob URLs, or already proxied URLs
+      return url;
+    };
+    
+    // Replace all URLs in the HTML with proxied URLs
     let modifiedHtml = html
-      // Replace src="http://..." with proxy URLs
-      .replace(/src="(http:\/\/[^"]+)"/g, (match, url) => {
-        const encoded = encodeURIComponent(url);
-        return `src="${proxyBase}/api/proxy?url=${encoded}"`;
+      // Replace src="..." (handles both absolute and relative)
+      .replace(/src="([^"]+)"/g, (match, url) => {
+        return `src="${toProxyUrl(url)}"`;
       })
-      // Replace href="http://..." with proxy URLs  
-      .replace(/href="(http:\/\/[^"]+)"/g, (match, url) => {
-        const encoded = encodeURIComponent(url);
-        return `href="${proxyBase}/api/proxy?url=${encoded}"`;
+      // Replace href="..." (handles both absolute and relative)
+      .replace(/href="([^"]+)"/g, (match, url) => {
+        // Don't proxy anchor links, mailto, tel, etc.
+        if (url.startsWith('#') || url.startsWith('mailto:') || url.startsWith('tel:') || url.startsWith('javascript:')) {
+          return match;
+        }
+        return `href="${toProxyUrl(url)}"`;
       })
-      // Replace action="http://..." with proxy URLs
-      .replace(/action="(http:\/\/[^"]+)"/g, (match, url) => {
-        const encoded = encodeURIComponent(url);
-        return `action="${proxyBase}/api/proxy?url=${encoded}"`;
+      // Replace action="..." (handles both absolute and relative)
+      .replace(/action="([^"]+)"/g, (match, url) => {
+        return `action="${toProxyUrl(url)}"`;
       })
-      // Replace background-image: url(http://...) with proxy URLs
-      .replace(/url\((http:\/\/[^)]+)\)/g, (match, url) => {
-        const encoded = encodeURIComponent(url);
-        return `url(${proxyBase}/api/proxy?url=${encoded})`;
+      // Replace background-image: url(...) (handles both absolute and relative)
+      .replace(/url\((['"]?)([^'")]+)\1\)/g, (match, quote, url) => {
+        return `url(${quote}${toProxyUrl(url)}${quote})`;
       })
       // Replace in style attributes
       .replace(/style="([^"]*)"/g, (match, style) => {
-        return `style="${style.replace(/url\((http:\/\/[^)]+)\)/g, (m, url) => {
-          const encoded = encodeURIComponent(url);
-          return `url(${proxyBase}/api/proxy?url=${encoded})`;
+        return `style="${style.replace(/url\((['"]?)([^'")]+)\1\)/g, (m, q, url) => {
+          return `url(${q}${toProxyUrl(url)}${q})`;
         })}"`;
-      });
+      })
+      // Add base tag to help resolve relative URLs (but we'll still proxy them)
+      .replace(/<head([^>]*)>/i, `<head$1><base href="${metabaseBase}/">`);
 
     // Set response headers
     res.setHeader('Content-Type', contentType);

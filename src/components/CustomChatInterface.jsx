@@ -1343,21 +1343,30 @@ export default function CustomChatInterface({ sessionId, onMessageSent, onVisual
 
   return (
     <div className="flex flex-col h-full bg-transparent relative">
-      {/* Voice Mode Toggle Button */}
-      {!voiceMode && (
-        <button
-          onClick={() => setVoiceMode(true)}
-          disabled={!isSpeechSupported}
-          className="absolute top-4 right-4 z-10 p-3 rounded-xl bg-gradient-to-r from-blue-600 to-blue-500 text-white hover:from-blue-500 hover:to-blue-400 transition-all duration-200 shadow-lg shadow-blue-500/40 hover:shadow-blue-500/60 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-          title="Enter Voice Mode"
-        >
-          <Radio className="w-5 h-5" />
-          <span className="text-sm font-medium">Voice Mode</span>
-        </button>
-      )}
-
       {/* Voice Mode Overlay */}
       <VoiceModeOverlay />
+
+      {/* Chat Header */}
+      {!voiceMode && (
+        <div className="px-6 py-4 border-b border-slate-700/50 bg-slate-800/20 backdrop-blur-sm">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-lg font-bold text-white">Chat Assistant</h2>
+              <p className="text-xs text-slate-400 mt-0.5">Ask anything about your data</p>
+            </div>
+            {/* Voice Mode Toggle Button */}
+            <button
+              onClick={() => setVoiceMode(true)}
+              disabled={!isSpeechSupported}
+              className="p-2.5 rounded-xl bg-gradient-to-r from-blue-600 to-blue-500 text-white hover:from-blue-500 hover:to-blue-400 transition-all duration-200 shadow-lg shadow-blue-500/40 hover:shadow-blue-500/60 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+              title="Enter Voice Mode"
+            >
+              <Radio className="w-4 h-4" />
+              <span className="text-sm font-medium">Voice Mode</span>
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Messages Container - Hidden in voice mode */}
       {!voiceMode && (

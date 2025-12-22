@@ -29,14 +29,14 @@ export default function ChatSection({ selectedHistoryItem, onClearHistory, chatK
 
   return (
     <div className="h-full flex flex-col bg-transparent">
-      {/* Header */}
-      <div className="px-6 py-5 border-b border-slate-700/50 bg-slate-800/20 backdrop-blur-sm">
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-xl font-bold text-white">Chat Assistant</h2>
-            <p className="text-sm text-slate-400 mt-0.5">Ask anything about your data</p>
-          </div>
-          {showHistory && (
+      {/* Header - Only show when viewing history */}
+      {showHistory && (
+        <div className="px-6 py-5 border-b border-slate-700/50 bg-slate-800/20 backdrop-blur-sm">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-bold text-white">Chat History</h2>
+              <p className="text-sm text-slate-400 mt-0.5">Viewing past conversation</p>
+            </div>
             <button
               onClick={handleBackToLiveChat}
               className="flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-blue-600 to-blue-500 text-white text-sm font-semibold rounded-xl hover:from-blue-500 hover:to-blue-400 active:scale-95 transition-all duration-200 shadow-lg shadow-blue-500/30 hover:shadow-blue-500/50"
@@ -44,9 +44,9 @@ export default function ChatSection({ selectedHistoryItem, onClearHistory, chatK
               <ArrowLeft className="w-4 h-4" />
               Back to Live Chat
             </button>
-          )}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Chat Content */}
       <div className="flex-1 overflow-hidden">
