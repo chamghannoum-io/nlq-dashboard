@@ -614,17 +614,12 @@ export default function CustomChatInterface({ sessionId, onMessageSent, onVisual
 
       console.log('Resume URL request body:', requestBody);
 
-      // Convert n8n URL to proxy URL if needed (for CORS)
-      const proxiedResumeUrl = apiService.convertN8nUrlToProxy(resumeUrl);
-      console.log('Proxied resume URL:', proxiedResumeUrl);
-
-      const response = await fetch(proxiedResumeUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(requestBody)
-      });
+      // Use the dedicated /api/resume endpoint (similar to Express /resume)
+      const response = await apiService.resumeWorkflow(
+        resumeUrl,
+        actionPayload,
+        sessionId
+      );
 
       console.log('Resume URL response status:', response.status);
 

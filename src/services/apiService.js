@@ -93,20 +93,44 @@ export const apiService = {
   },
 
   async sendMessageToResumeUrl(resumeUrl, message, sessionId, signal) {
-    // Convert n8n URL to proxy URL if needed
-    const proxiedUrl = convertN8nUrlToProxy(resumeUrl);
-    
-    const response = await fetch(proxiedUrl, {
+    // Use the dedicated /api/resume endpoint (similar to Express /resume)
+    const response = await fetch('/api/resume', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Accept': 'application/json'
       },
       body: JSON.stringify({
-        message: message,
-        sessionId: sessionId
+        resumeUrl: resumeUrl,
+        data: {
+          message: message,
+          sessionId: sessionId
+        }
       }),
       signal: signal
+    });
+    
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    
+    return response;
+  },
+
+  async resumeWorkflow(resumeUrl, actionPayload = null, sessionId = null) {
+    // Use the dedicated /api/resume endpoint for continuing workflows
+    const response = await fetch('/api/resume', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      },
+      body: JSON.stringify({
+        resumeUrl: resumeUrl,
+        action: actionPayload?.action || null,
+        sessionId: sessionId,
+        data: actionPayload || {}
+      })
     });
     
     if (!response.ok) {
