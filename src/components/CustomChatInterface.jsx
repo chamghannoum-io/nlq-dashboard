@@ -500,6 +500,13 @@ export default function CustomChatInterface({ sessionId, onMessageSent, onVisual
     );
   };
 
+  // Helper function to extract text content from response data
+  const extractResponseText = (data) => {
+    if (!data || typeof data !== 'object') return '';
+    // Try multiple possible fields that might contain text
+    return data.message || data.answer || data.text || data.content || '';
+  };
+
   // Process a single response based on its type
   const processResponse = (data) => {
     console.log('Processing response:', data);
@@ -530,8 +537,8 @@ export default function CustomChatInterface({ sessionId, onMessageSent, onVisual
 
     // For all other types (answer, status, followup), add to chat (only in normal mode)
     if (!voiceMode) {
-      const messageContent = data.message || data.answer;
-      if (messageContent !== undefined) {
+      const messageContent = extractResponseText(data);
+      if (messageContent) {
         const messageId = `assistant-${Date.now()}-${Math.random()}`;
         const newMessage = {
           id: messageId,
@@ -688,9 +695,19 @@ export default function CustomChatInterface({ sessionId, onMessageSent, onVisual
         } else {
           console.log('WaitType is automatic - continuing workflow automatically');
           decisionMade = true;
-          isProcessingWorkflowRef.current = false;
-          await continueWorkflow(resumeUrl);
-          return; // Important: return to avoid setting isProcessing to false twice
+          // In voice mode, speak the response before continuing workflow
+          if (voiceMode && voiceModeResponseText.trim()) {
+            const tempMessageId = `voice-continue-${Date.now()}`;
+            speakText(voiceModeResponseText.trim(), tempMessageId);
+            // Continue workflow after speaking starts (don't wait for it to finish)
+            isProcessingWorkflowRef.current = false;
+            await continueWorkflow(resumeUrl);
+            return; // Important: return to avoid setting isProcessing to false twice
+          } else {
+            isProcessingWorkflowRef.current = false;
+            await continueWorkflow(resumeUrl);
+            return; // Important: return to avoid setting isProcessing to false twice
+          }
         }
       };
 
@@ -722,11 +739,12 @@ export default function CustomChatInterface({ sessionId, onMessageSent, onVisual
                   // If we already have a resumeUrl, make decision immediately
                   if (nextResumeUrlFound && !decisionMade) {
                     await makeImmediateDecision(nextResumeUrlFound, detectedWaitType, accumulatedResponseData);
-                    if (decisionMade) return; // Exit if decision was made
+                    if (decisionMade) {
+                      return; 
+                    }
                   }
                 }
 
-                // Accumulate all fields from this chunk
                 accumulatedResponseData = { ...accumulatedResponseData, ...data };
 
                 // Check if this is a placeholder response that needs retry
@@ -751,7 +769,7 @@ export default function CustomChatInterface({ sessionId, onMessageSent, onVisual
 
                 // Collect response text for voice mode TTS
                 if (voiceMode) {
-                  const messageContent = data.message || data.answer;
+                  const messageContent = extractResponseText(data);
                   if (messageContent) {
                     voiceModeResponseText += messageContent + ' ';
                   }
@@ -766,7 +784,11 @@ export default function CustomChatInterface({ sessionId, onMessageSent, onVisual
                   // If we already have waitType, make decision immediately
                   if (detectedWaitType && !decisionMade) {
                     await makeImmediateDecision(nextResumeUrl, detectedWaitType, accumulatedResponseData);
-                    if (decisionMade) return; // Exit if decision was made
+                    if (decisionMade) {
+                      // If we spoke text and are continuing automatically, the workflow will continue
+                      // If we spoke text and are waiting, we're done
+                      return; // Exit if decision was made
+                    }
                   }
                 }
               } catch (e) {
@@ -849,6 +871,8 @@ export default function CustomChatInterface({ sessionId, onMessageSent, onVisual
             setVoiceState('idle');
             isProcessingWorkflowRef.current = false;
             return;
+          } else {
+            isProcessingWorkflowRef.current = false;
           }
         }
       } else {
@@ -912,9 +936,19 @@ export default function CustomChatInterface({ sessionId, onMessageSent, onVisual
                 setVoiceState('idle');
               }
             } else {
-              isProcessingWorkflowRef.current = false;
-              await continueWorkflow(nextResumeUrl);
-              return;
+              // In voice mode, speak the response before continuing workflow
+              if (voiceMode && voiceModeResponseText.trim()) {
+                const tempMessageId = `voice-continue-${Date.now()}`;
+                speakText(voiceModeResponseText.trim(), tempMessageId);
+                // Continue workflow after speaking starts (don't wait for it to finish)
+                isProcessingWorkflowRef.current = false;
+                await continueWorkflow(nextResumeUrl);
+                return;
+              } else {
+                isProcessingWorkflowRef.current = false;
+                await continueWorkflow(nextResumeUrl);
+                return;
+              }
             }
           } else {
             // No more resume URLs - if in voice mode and we have collected text, speak it
@@ -997,7 +1031,7 @@ export default function CustomChatInterface({ sessionId, onMessageSent, onVisual
       console.log('Initial webhook response received');
 
       // Helper function to make immediate decision when we have both resumeUrl and waitType
-      const makeImmediateDecision = (resumeUrl, waitType, data) => {
+      const makeImmediateDecision = async (resumeUrl, waitType, data) => {
         if (decisionMade) return; // Don't make decision twice
         
         const waitTypeData = waitType ? { waitType, ...data } : data;
@@ -1018,7 +1052,15 @@ export default function CustomChatInterface({ sessionId, onMessageSent, onVisual
         } else {
           console.log('WaitType is automatic - continuing workflow automatically');
           decisionMade = true;
-          continueWorkflow(resumeUrl);
+          // In voice mode, speak the response before continuing workflow
+          if (voiceMode && voiceModeResponseText.trim()) {
+            const tempMessageId = `voice-initial-${Date.now()}`;
+            speakText(voiceModeResponseText.trim(), tempMessageId);
+            // Continue workflow after speaking starts (don't wait for it to finish)
+            continueWorkflow(resumeUrl);
+          } else {
+            continueWorkflow(resumeUrl);
+          }
         }
       };
 
@@ -1049,7 +1091,7 @@ export default function CustomChatInterface({ sessionId, onMessageSent, onVisual
                   
                   // If we already have a resumeUrl, make decision immediately
                   if (firstResumeUrl && !decisionMade) {
-                    makeImmediateDecision(firstResumeUrl, detectedWaitType, accumulatedResponseData);
+                    await makeImmediateDecision(firstResumeUrl, detectedWaitType, accumulatedResponseData);
                   }
                 }
 
@@ -1061,7 +1103,7 @@ export default function CustomChatInterface({ sessionId, onMessageSent, onVisual
 
                 // Collect response text for voice mode TTS
                 if (voiceMode) {
-                  const messageContent = data.message || data.answer;
+                  const messageContent = extractResponseText(data);
                   if (messageContent) {
                     voiceModeResponseText += messageContent + ' ';
                   }
@@ -1075,7 +1117,7 @@ export default function CustomChatInterface({ sessionId, onMessageSent, onVisual
                   
                   // If we already have waitType, make decision immediately
                   if (detectedWaitType && !decisionMade) {
-                    makeImmediateDecision(resumeUrl, detectedWaitType, accumulatedResponseData);
+                    await makeImmediateDecision(resumeUrl, detectedWaitType, accumulatedResponseData);
                   }
                 }
               } catch (e) {
@@ -1157,15 +1199,17 @@ export default function CustomChatInterface({ sessionId, onMessageSent, onVisual
         const finalWaitType = detectedWaitType || accumulatedResponseData.waitType;
         console.log('Final waitType determination:', { detectedWaitType, accumulatedWaitType: accumulatedResponseData.waitType, finalWaitType });
         console.log('Accumulated response data:', accumulatedResponseData);
-        makeImmediateDecision(firstResumeUrl, finalWaitType, accumulatedResponseData);
-      } else if (!decisionMade && voiceMode) {
-        // No resumeUrl - if we have response text, speak it
-        if (voiceModeResponseText.trim()) {
+        await makeImmediateDecision(firstResumeUrl, finalWaitType, accumulatedResponseData);
+      } else if (!decisionMade) {
+        // No resumeUrl - if in voice mode and we have response text, speak it
+        if (voiceMode && voiceModeResponseText.trim()) {
           const tempMessageId = `voice-initial-${Date.now()}`;
           speakText(voiceModeResponseText.trim(), tempMessageId);
-        } else {
+        } else if (voiceMode) {
           setIsLoading(false);
           setVoiceState('idle');
+        } else {
+          setIsLoading(false);
         }
       }
     } catch (error) {
