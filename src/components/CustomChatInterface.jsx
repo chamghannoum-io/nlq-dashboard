@@ -1005,6 +1005,8 @@ export default function CustomChatInterface({ sessionId, onMessageSent, onVisual
     
     // Check if there's a pending resumeUrl to respond to
     const pendingResumeUrl = currentResumeUrl;
+    console.log('[processMessageRequest] Starting with messageText:', messageText);
+    console.log('[processMessageRequest] pendingResumeUrl:', pendingResumeUrl, 'sessionId:', sessionId);
     setCurrentResumeUrl(null); // Clear any stored resume URL from previous interaction
 
     abortControllerRef.current = new AbortController();

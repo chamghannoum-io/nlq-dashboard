@@ -94,6 +94,7 @@ export const apiService = {
 
   async sendMessageToResumeUrl(resumeUrl, message, sessionId, signal) {
     // Use the dedicated /api/resume endpoint (similar to Express /resume)
+    console.log('[apiService.sendMessageToResumeUrl] Calling /api/resume with resumeUrl:', resumeUrl, 'sessionId:', sessionId);
     const response = await fetch('/api/resume', {
       method: 'POST',
       headers: {
@@ -110,10 +111,13 @@ export const apiService = {
       signal: signal
     });
     
+    console.log('[apiService.sendMessageToResumeUrl] /api/resume response status:', response.status);
+
     if (!response.ok) {
+      console.error('[apiService.sendMessageToResumeUrl] Non-OK response from /api/resume:', response.status);
       throw new Error(`HTTP error! status: ${response.status}`);
     }
-    
+
     return response;
   },
 

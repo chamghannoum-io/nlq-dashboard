@@ -7,17 +7,14 @@
 const N8N_BASE_URL = process.env.VITE_N8N_BASE_URL || process.env.N8N_BASE_URL || 'https://n8n-test.iohealth.com';
 
 module.exports = async function handler(req, res) {
-  // Set CORS headers first
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Accept');
 
-  // Handle OPTIONS preflight
   if (req.method === 'OPTIONS') {
     return res.status(200).end();
   }
 
-  // Only allow POST and GET methods
   if (req.method !== 'POST' && req.method !== 'GET') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
@@ -30,9 +27,6 @@ module.exports = async function handler(req, res) {
 
     // Get the path from the request
     // Vercel uses "...path" as the query key for catch-all routes [...path]
-    // Examples:
-    // /api/webhook/nlq-chat -> /webhook/nlq-chat
-    // /api/webhook/waiting/764222 -> /webhook-waiting/764222
     const path = req.query['...path'] || req.query.path;
     const webhookPath = Array.isArray(path) ? path.join('/') : path;
     
@@ -49,22 +43,17 @@ module.exports = async function handler(req, res) {
     }
     
     // Check if path starts with "waiting" to handle /webhook-waiting/ pattern
-    // Handle both array format ["waiting", "764238"] and string format "waiting/764238"
     let targetUrl;
     
-    // Check if it's a waiting path
     const isWaitingPath = Array.isArray(path) 
       ? path.length > 0 && path[0] === 'waiting'
       : typeof webhookPath === 'string' && (webhookPath.startsWith('waiting/') || webhookPath === 'waiting');
     
     if (isWaitingPath) {
-      // Handle waiting path
       let waitingPath;
       if (Array.isArray(path)) {
-        // Remove first element "waiting" and join the rest
         waitingPath = path.slice(1).join('/');
       } else {
-        // Remove "waiting/" prefix or handle if it's just "waiting"
         waitingPath = webhookPath === 'waiting' ? '' : webhookPath.replace(/^waiting\/?/, '');
       }
       
@@ -75,7 +64,6 @@ module.exports = async function handler(req, res) {
       targetUrl = `${N8N_BASE_URL}/webhook-waiting/${waitingPath}`;
       console.log('Detected waiting path, target URL:', targetUrl);
     } else {
-      // Regular webhook endpoint
       targetUrl = `${N8N_BASE_URL}/webhook/${webhookPath}`;
       console.log('Regular webhook path, target URL:', targetUrl);
     }
@@ -92,18 +80,15 @@ module.exports = async function handler(req, res) {
 
     console.log('Target URL:', url.toString());
 
-    // Prepare headers
     const headers = {
       'Content-Type': 'application/json',
       'Accept': 'application/json',
       'User-Agent': req.headers['user-agent'] || 'Vercel-Proxy',
     };
 
-    // Prepare request body - handle both parsed and unparsed body
     let requestBody;
     if (req.method === 'POST') {
       if (req.body) {
-        // If body is already an object, stringify it; otherwise use as-is
         requestBody = typeof req.body === 'string' ? req.body : JSON.stringify(req.body);
       }
     }
@@ -120,21 +105,17 @@ module.exports = async function handler(req, res) {
     console.log('Response status:', response.status);
     console.log('Response headers:', Object.fromEntries(response.headers.entries()));
 
-    // Get response content type
     const contentType = response.headers.get('content-type') || 'application/json';
     
-    // Set response headers
     res.setHeader('Content-Type', contentType);
     res.status(response.status);
 
     // For all responses, get the text (Vercel serverless functions work better with buffered responses)
-    // This handles both streaming and non-streaming responses
     const text = await response.text();
     
     console.log('Response text length:', text.length);
     console.log('Response text preview:', text.substring(0, 200));
     
-    // Try to parse as JSON, fallback to text
     try {
       const data = JSON.parse(text);
       res.json(data);
